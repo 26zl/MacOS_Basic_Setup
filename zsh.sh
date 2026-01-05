@@ -11,7 +11,7 @@ export ZSH="$HOME/.oh-my-zsh"
 export ZSH_THEME="powerlevel10k/powerlevel10k"
 export plugins=(git zsh-syntax-highlighting zsh-autosuggestions)
 
-source $ZSH/oh-my-zsh.sh
+source "$ZSH/oh-my-zsh.sh"
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
@@ -393,16 +393,13 @@ fzf_config="${XDG_CONFIG_HOME:-$HOME/.config}/fzf/fzf.zsh"
 HOMEBREW_PREFIX="$(_detect_brew_prefix)"
 if [[ -n "$HOMEBREW_PREFIX" ]]; then
   # Remove Homebrew paths from current PATH temporarily
-  # Use anonymous function to avoid variable output
-  () {
-    local cleaned_path
+  # Use command grouping to avoid variable output
+  {
     cleaned_path=$(echo "$PATH" | tr ':' '\n' | grep -v "^$HOMEBREW_PREFIX/bin$" | grep -v "^$HOMEBREW_PREFIX/sbin$" | tr '\n' ':' | sed 's/:$//' 2>/dev/null)
     # Rebuild PATH with Homebrew first
     export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$cleaned_path"
   } >/dev/null 2>&1
 else
   # No Homebrew, just clean normally
-  () {
-    export PATH="$(_clean_path)"
-  } >/dev/null 2>&1
+  export PATH="$(_clean_path)" >/dev/null 2>&1
 fi

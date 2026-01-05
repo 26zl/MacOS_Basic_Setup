@@ -222,9 +222,8 @@ HOMEBREW_PREFIX="$(_detect_brew_prefix_zprofile)"
 if [[ -n "$HOMEBREW_PREFIX" ]]; then
   # Remove Homebrew paths from current PATH temporarily
   # Suppress all output to avoid Powerlevel10k instant prompt warnings
-  # Use anonymous function to avoid variable output
-  () {
-    local cleaned_path
+  # Use command grouping to avoid variable output
+  {
     cleaned_path=$(echo "$PATH" | tr ':' '\n' | grep -v "^$HOMEBREW_PREFIX/bin$" | grep -v "^$HOMEBREW_PREFIX/sbin$" | tr '\n' ':' | sed 's/:$//' 2>/dev/null)
     # Rebuild PATH with Homebrew first, then others, then system paths
     export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$cleaned_path"
