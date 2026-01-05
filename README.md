@@ -7,7 +7,7 @@
 
 ![Terminal preview](background/image.png)
 
-## 🚀 Quick Start
+## Quick Start
 
 Get up and running in 2 minutes:
 
@@ -19,11 +19,11 @@ source ~/.zshrc
 ```
 
 That's it! You now have:
-- ✅ Automated tool updates (`update` command)
-- ✅ Multi-language support (Python, Node.js, Ruby, Rust, Go, Java)
-- ✅ Beautiful terminal with Powerlevel10k theme
-- ✅ Security tools and best practices
-- ✅ Database support (MySQL, MongoDB, PostgreSQL)
+- Automated tool updates (`update` command)
+- Multi-language support (Python, Node.js, Ruby, Rust, Go, Java)
+- Beautiful terminal with Powerlevel10k theme
+- Security tools and best practices
+- Database support (MySQL, MongoDB, PostgreSQL)
 
 **Daily usage:**
 ```bash
@@ -32,15 +32,15 @@ verify    # Check status of all installed tools
 versions  # Display versions of all tools
 ```
 
-## ✨ Features
+## Features
 
-- 🔄 **One Command Updates** - Update Homebrew, MacPorts, Nix, Python, Node.js, Ruby, Rust, Go, Swift with `update`
-- 🛠️ **Multi-Language Support** - Python (pyenv), Node.js (nvm), Ruby (chruby), Rust (rustup), Swift (swiftly), Go, Java
-- 📦 **Package Managers** - Homebrew, MacPorts, Nix, Conda, pipx, npm, gem, cargo
-- 🎨 **Beautiful Terminal** - Oh My Zsh with Powerlevel10k, syntax highlighting, autosuggestions
-- ⚡ **Performance Optimized** - Lazy loading, efficient PATH management, smart caching
+- **One Command Updates** - Update Homebrew, MacPorts, Nix, Python, Node.js, Ruby, Rust, Go, Swift with `update`
+- **Multi-Language Support** - Python (pyenv), Node.js (nvm), Ruby (chruby), Rust (rustup), Swift (swiftly), Go, Java
+- **Package Managers** - Homebrew, MacPorts, Nix, Conda, pipx, npm, gem, cargo
+- **Beautiful Terminal** - Oh My Zsh with Powerlevel10k, syntax highlighting, autosuggestions
+- **Performance Optimized** - Lazy loading, efficient PATH management, smart caching
 
-## 📦 Installation
+## Installation
 
 ### Quick Install (Recommended)
 
@@ -57,7 +57,7 @@ source ~/.zshrc
 
 **Installs**: Homebrew, Oh My Zsh, Powerlevel10k, ZSH plugins, FZF, maintain-system script, zsh config
 
-## 💻 Usage
+## Usage
 
 After installation, you have three main commands:
 
@@ -97,22 +97,22 @@ Customize with environment variables:
 - `MAINTAIN_SYSTEM_CHRUBY_KEEP="ruby-3.4.6"` - Keep specific Ruby versions
 - `MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS=1` - Enable Swift development snapshot updates (default: stable releases only)
 
-## 🛠️ Supported Tools
+## Supported Tools
 
 **Package Managers**: Homebrew, MacPorts, Nix, Conda/Miniforge, pipx  
 **Languages**: Python (pyenv), Node.js (nvm), Ruby (chruby), Rust (rustup), Swift (swiftly), Go, Java  
 **Databases**: MySQL, MongoDB, PostgreSQL  
 **Other**: Docker, C/C++ (via Xcode)
 
-## 🎨 Terminal
+## Terminal
 
 Includes: Oh My Zsh, Powerlevel10k, syntax highlighting, autosuggestions, FZF. Optional Ghostty config included - see `Ghostty config.txt`.
 
-## 🔒 Security
+## Security
 
 Recommended tools: [Objective-See](https://objective-see.org/tools.html) (Lulu, KnockKnock, Dylib Scanner, Oversight). Guides: [macOS Security Guide](https://github.com/drduh/macOS-Security-and-Privacy-Guide), [Privacy Guide](https://anonymousplanet.org/guide/).
 
-## 🛠️ Useful Tools
+## Useful Tools
 
 **Cybersecurity Tools**: Install via Homebrew/MacPorts/Nix for easy maintenance. For Python tools, use `pipx` instead of `pip` for isolation.
 
@@ -120,40 +120,40 @@ Recommended tools: [Objective-See](https://objective-see.org/tools.html) (Lulu, 
 **System Cleanup**: [Mole](https://github.com/tw93/Mole) (`brew install mole`) - deep clean, app uninstaller, disk analyzer  
 **Utilities**: [Pearcleaner](https://github.com/alienator88/Pearcleaner), [Keka](https://github.com/aonez/Keka), [Maccy](https://github.com/p0deje/Maccy), [Ice](https://github.com/jordanbaird/Ice), [BetterDisplay](https://github.com/waydabber/BetterDisplay)
 
-**System Cleanup Tips** (⚠️ use with caution):
+**System Cleanup Tips** (use with caution):
 - Clear cache: `~/Library/Caches`
 - Clear logs: `/var/log` (safer: `sudo log collect --last 1d`)
 - Remove languages: `/Library/Languages` (keep primary + English)
 
-## 💡 Tips
+## Tips
 
 **macOS**: `Cmd + Space` (Spotlight), `Cmd + Shift + .` (show hidden files), `Ctrl + R` (history search), `Cmd + K` (clear terminal)  
 **Development**: Use FZF for navigation, virtual environments for Python, `nvm` for Node.js versions  
 **Maintenance**: Run `update` weekly, use `df -h` or Mole for disk space, run `p10k configure` to customize prompt  
 **Troubleshooting**: Check PATH with `echo $PATH`, run `update` to fix broken symlinks
 
-## 📋 Requirements
+## Requirements
 
 macOS (Intel or Apple Silicon), Zsh, internet connection. Homebrew and Git recommended (auto-installed if missing).
 
-## 🧪 Testing
+## Testing
 
 ```bash
 ./quick-test.sh  # Quick syntax test
 ./install.sh     # Full test (backup ~/.zshrc first!)
 ```
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Before submitting a PR: run `./quick-test.sh`, ensure ShellCheck passes, verify no secrets, test on Intel and Apple Silicon.
 
 **CI/CD**: ShellCheck, Gitleaks (secrets), Trivy (security), syntax checks. See `.github/workflows/` for details.
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This is a personal setup configuration. Use at your own risk and always do your own research before applying system-wide changes.
 
