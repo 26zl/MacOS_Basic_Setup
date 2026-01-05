@@ -181,6 +181,60 @@ setup_nix_path() {
   fi
 }
 
+# Function to setup PATH cleanup in .zprofile
+setup_zprofile_path_cleanup() {
+  if [[ -z "$HOMEBREW_PREFIX" ]]; then
+    return 0  # No Homebrew, skip
+  fi
+  
+  echo "${YELLOW}📦 Setting up PATH cleanup in .zprofile...${NC}"
+  
+  # Check if PATH cleanup already exists
+  if [[ -f "$HOME/.zprofile" ]] && grep -q "FINAL PATH CLEANUP (FOR .ZPROFILE)" "$HOME/.zprofile"; then
+    echo "${GREEN}✅ PATH cleanup already configured in .zprofile${NC}"
+    return 0
+  fi
+  
+  # Backup .zprofile if it exists
+  if [[ -f "$HOME/.zprofile" ]]; then
+    local zprofile_backup="$HOME/.zprofile.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$HOME/.zprofile" "$zprofile_backup"
+  fi
+  
+  # Append PATH cleanup to .zprofile
+  cat >> "$HOME/.zprofile" << 'ZPROFILE_EOF'
+
+# ================================ FINAL PATH CLEANUP (FOR .ZPROFILE) =======================
+# This must be at the very end of .zprofile to fix PATH order after all tools have loaded
+# Ensures Homebrew paths come before /usr/bin
+# Managed by macOS Development Environment Setup
+_detect_brew_prefix_zprofile() {
+  if [[ -d /opt/homebrew ]]; then
+    echo /opt/homebrew
+  elif [[ -d /usr/local/Homebrew ]]; then
+    echo /usr/local
+  else
+    echo ""
+  fi
+}
+
+HOMEBREW_PREFIX="$(_detect_brew_prefix_zprofile)"
+if [[ -n "$HOMEBREW_PREFIX" ]]; then
+  # Remove Homebrew paths from current PATH temporarily
+  # Suppress all output to avoid Powerlevel10k instant prompt warnings
+  # Use anonymous function to avoid variable output
+  () {
+    local cleaned_path
+    cleaned_path=$(echo "$PATH" | tr ':' '\n' | grep -v "^$HOMEBREW_PREFIX/bin$" | grep -v "^$HOMEBREW_PREFIX/sbin$" | tr '\n' ':' | sed 's/:$//' 2>/dev/null)
+    # Rebuild PATH with Homebrew first, then others, then system paths
+    export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$cleaned_path"
+  } >/dev/null 2>&1
+fi
+ZPROFILE_EOF
+
+  echo "${GREEN}✅ PATH cleanup configured in .zprofile${NC}"
+}
+
 # Function to backup and install zsh config
 install_zsh_config() {
   local zshrc_backup="$HOME/.zshrc.backup.$(date +%Y%m%d_%H%M%S)"
@@ -230,6 +284,9 @@ main() {
   
   # Setup Nix PATH (if Nix is installed)
   setup_nix_path
+  
+  # Setup PATH cleanup in .zprofile (ensures Homebrew comes before /usr/bin)
+  setup_zprofile_path_cleanup
   
   # Install zsh config
   install_zsh_config

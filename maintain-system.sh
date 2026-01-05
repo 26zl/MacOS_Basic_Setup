@@ -1013,7 +1013,7 @@ update() {
         if pipx upgrade-all --force 2>/dev/null; then
           echo "  SUCCESS: pipx packages upgraded with force"
           # Remove pipx from errors if force upgrade succeeded
-          python_errors=(${python_errors[@]/pipx})
+          python_errors=("${python_errors[@]/pipx}")
         else
           echo "  WARNING: Force upgrade also failed"
         fi
@@ -1229,12 +1229,6 @@ update() {
   fi
 
   local chruby_target=""
-  local previous_ruby=""
-  
-  # Get current Ruby version before any changes
-  if command -v ruby >/dev/null 2>&1; then
-    previous_ruby="$(ruby -v | cut -d' ' -f2)"
-  fi
   
   if command -v gem >/dev/null 2>&1; then
     echo "[RubyGems] Updating and cleaning gems..."
@@ -1337,10 +1331,11 @@ update() {
     
     # Update swiftly itself
     echo "  Updating swiftly..."
-    if yes | swiftly self-update 2>/dev/null; then
+    # swiftly self-update can be interactive, redirect stdin to /dev/null after piping responses
+    if { printf "y\ny\ny\ny\ny\n"; cat /dev/null; } | swiftly self-update >/dev/null 2>&1; then
       echo "  swiftly updated successfully"
     else
-      echo "  WARNING: swiftly self-update failed"
+      echo "  WARNING: swiftly self-update failed (may require manual intervention)"
     fi
     
     # swiftly list shows "(in use)" for release toolchains and "(default)" for snapshots
@@ -1471,15 +1466,9 @@ update() {
       echo "    WARNING: Toolchain update failed"
     fi
 
-    # Only set stable as default if no default toolchain is currently set
-    local current_default=""
-    current_default="$(rustup show active-toolchain 2>/dev/null | grep '(default)' || echo "")"
-    if [[ -z "$current_default" ]]; then
-      echo "  No default toolchain set, setting stable as default..."
-      rustup default stable 2>/dev/null || rust_errors+=("default_toolchain")
-    else
-      echo "  Default toolchain already set: $(rustup show active-toolchain 2>/dev/null | head -n1)"
-    fi
+    # Set default toolchain to stable
+    echo "  Setting default toolchain to stable..."
+    rustup default stable 2>/dev/null || rust_errors+=("default_toolchain")
     
     # Add common rustup components if not already installed
     echo "  Ensuring rustup components are installed..."
@@ -1936,7 +1925,8 @@ versions() {
   else
     echo "Swift .......... not installed"
     if command -v swiftly >/dev/null 2>&1; then
-      local swiftly_installed="$(swiftly list 2>/dev/null | head -n1 || echo "")"
+      local swiftly_installed
+      swiftly_installed="$(swiftly list 2>/dev/null | head -n1 || echo "")"
       [[ -n "$swiftly_installed" ]] && echo "swiftly ........ installed (Swift not in PATH)" || echo "swiftly ........ installed (not initialized)"
     fi
   fi
@@ -1990,14 +1980,16 @@ versions() {
   
   # Nix
   if command -v nix >/dev/null 2>&1; then
-    local nix_version="$(nix --version 2>/dev/null | head -n1 | sed 's/nix (Nix) //' || echo "unknown")"
+    local nix_version
+    nix_version="$(nix --version 2>/dev/null | head -n1 | sed 's/nix (Nix) //' || echo "unknown")"
     echo "Nix ............. $nix_version"
   else
     echo "Nix ............. not installed"
   fi
   
   if command -v mongod >/dev/null 2>&1; then
-    local mongodb_version="$(mongod --version 2>/dev/null | head -n1 | sed 's/db version //' || echo "unknown")"
+    local mongodb_version
+    mongodb_version="$(mongod --version 2>/dev/null | head -n1 | sed 's/db version //' || echo "unknown")"
     local mongodb_status="stopped"
     if pgrep -x mongod >/dev/null 2>&1; then
       mongodb_status="running"
@@ -2008,7 +2000,8 @@ versions() {
   fi
   
   if command -v psql >/dev/null 2>&1; then
-    local postgres_version="$(psql --version 2>/dev/null | sed 's/psql (PostgreSQL) //' | sed 's/ .*//' || echo "unknown")"
+    local postgres_version
+    postgres_version="$(psql --version 2>/dev/null | sed 's/psql (PostgreSQL) //' | sed 's/ .*//' || echo "unknown")"
     local postgres_status="stopped"
     if pgrep -x postgres >/dev/null 2>&1; then
       postgres_status="running"

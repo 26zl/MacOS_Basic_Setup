@@ -8,8 +8,8 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
 fi
 
 export ZSH="$HOME/.oh-my-zsh"
-ZSH_THEME="powerlevel10k/powerlevel10k"
-plugins=(git zsh-syntax-highlighting zsh-autosuggestions)
+export ZSH_THEME="powerlevel10k/powerlevel10k"
+export plugins=(git zsh-syntax-highlighting zsh-autosuggestions)
 
 source $ZSH/oh-my-zsh.sh
 
@@ -27,11 +27,18 @@ _detect_brew_prefix() {
     echo ""
   fi
 }
-# Clean PATH of duplicates
+# Clean PATH of duplicates and prioritize Homebrew
 _clean_path() {
   local path_array=($(echo "$PATH" | tr ':' '\n'))
   local unique_paths=()
   local seen_paths=()
+  local homebrew_paths=()
+  local system_paths=()
+  local other_paths=()
+  
+  # Detect Homebrew prefix
+  local brew_prefix
+  brew_prefix="$(_detect_brew_prefix)"
   
   for path_entry in "${path_array[@]}"; do
     [[ -z "$path_entry" ]] && continue
@@ -50,10 +57,34 @@ _clean_path() {
     done
     
     if [[ "$is_duplicate" == false ]]; then
-      unique_paths+=("$path_entry")
       seen_paths+=("$normalized_path")
+      
+      # Categorize paths: Homebrew first, system paths last, others in between
+      # Check both normalized and original path for Homebrew
+      if [[ -n "$brew_prefix" ]]; then
+        if [[ "$normalized_path" == "$brew_prefix/bin" || "$normalized_path" == "$brew_prefix/sbin" ]] || \
+           [[ "$path_entry" == "$brew_prefix/bin" || "$path_entry" == "$brew_prefix/sbin" ]]; then
+          homebrew_paths+=("$path_entry")
+        elif [[ "$normalized_path" == "/usr/bin" || "$normalized_path" == "/usr/sbin" || "$normalized_path" == "/bin" || "$normalized_path" == "/sbin" ]] || \
+             [[ "$path_entry" == "/usr/bin" || "$path_entry" == "/usr/sbin" || "$path_entry" == "/bin" || "$path_entry" == "/sbin" ]]; then
+          system_paths+=("$path_entry")
+        else
+          other_paths+=("$path_entry")
+        fi
+      else
+        # No Homebrew, just categorize system vs others
+        if [[ "$normalized_path" == "/usr/bin" || "$normalized_path" == "/usr/sbin" || "$normalized_path" == "/bin" || "$normalized_path" == "/sbin" ]] || \
+           [[ "$path_entry" == "/usr/bin" || "$path_entry" == "/usr/sbin" || "$path_entry" == "/bin" || "$path_entry" == "/sbin" ]]; then
+          system_paths+=("$path_entry")
+        else
+          other_paths+=("$path_entry")
+        fi
+      fi
     fi
   done
+  
+  # Rebuild PATH: Homebrew first, then others, then system paths
+  unique_paths=("${homebrew_paths[@]}" "${other_paths[@]}" "${system_paths[@]}")
   
   # Join unique paths
   printf "%s:" "${unique_paths[@]}" | sed 's/:$//'
@@ -357,4 +388,21 @@ fzf_config="${XDG_CONFIG_HOME:-$HOME/.config}/fzf/fzf.zsh"
 # ================================ FINAL PATH CLEANUP =======================
 # Clean PATH at the very end to catch any duplicates added by plugins or tools
 # Final PATH cleanup (must be last)
-export PATH="$(_clean_path)"
+# Explicitly ensure Homebrew paths come first, then rebuild PATH
+# Suppress all output to avoid Powerlevel10k instant prompt warnings
+HOMEBREW_PREFIX="$(_detect_brew_prefix)"
+if [[ -n "$HOMEBREW_PREFIX" ]]; then
+  # Remove Homebrew paths from current PATH temporarily
+  # Use anonymous function to avoid variable output
+  () {
+    local cleaned_path
+    cleaned_path=$(echo "$PATH" | tr ':' '\n' | grep -v "^$HOMEBREW_PREFIX/bin$" | grep -v "^$HOMEBREW_PREFIX/sbin$" | tr '\n' ':' | sed 's/:$//' 2>/dev/null)
+    # Rebuild PATH with Homebrew first
+    export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$cleaned_path"
+  } >/dev/null 2>&1
+else
+  # No Homebrew, just clean normally
+  () {
+    export PATH="$(_clean_path)"
+  } >/dev/null 2>&1
+fi
