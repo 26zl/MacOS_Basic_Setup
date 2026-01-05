@@ -220,8 +220,8 @@ npm() {
 # ================================ conda/miniforge ===========================
 # Initialize conda/miniforge if installed but not already in PATH
 if ! command -v conda >/dev/null 2>&1; then
-  local HOMEBREW_PREFIX="$(_detect_brew_prefix)"
-  local conda_paths=(
+  HOMEBREW_PREFIX="$(_detect_brew_prefix)"
+  conda_paths=(
     "$HOME/miniforge3/bin/conda"
     "$HOME/miniforge/bin/conda"
     "$HOME/anaconda3/bin/conda"
