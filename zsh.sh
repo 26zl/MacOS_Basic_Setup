@@ -89,7 +89,7 @@ if [[ -n "$HOMEBREW_PREFIX" ]]; then
   _add_to_path "$HOMEBREW_PREFIX/sbin"
 fi
 # Use XDG_DATA_HOME if set, otherwise fall back to ~/.local/bin
-local local_bin="${XDG_DATA_HOME:-$HOME/.local/share}/../bin"
+local_bin="${XDG_DATA_HOME:-$HOME/.local/share}/../bin"
 [[ -d "$local_bin" ]] || local_bin="$HOME/.local/bin"
 _add_to_path "$local_bin"
 
@@ -288,7 +288,7 @@ _detect_mysql_path() {
   echo ""
 }
 
-local mysql_support_dir="$(_detect_mysql_path)"
+mysql_support_dir="$(_detect_mysql_path)"
 if [[ -n "$mysql_support_dir" && -f "$mysql_support_dir/support-files/mysql.server" ]]; then
   alias mysqlstart="sudo $mysql_support_dir/support-files/mysql.server start"
   alias mysqlstop="sudo $mysql_support_dir/support-files/mysql.server stop"
@@ -325,7 +325,7 @@ _detect_openjdk_path() {
         echo ""
 }
 
-local openjdk_path="$(_detect_openjdk_path)"
+openjdk_path="$(_detect_openjdk_path)"
 if [[ -n "$openjdk_path" && -d "$openjdk_path" ]]; then
   _add_to_path "$openjdk_path"
 fi
@@ -335,7 +335,7 @@ fi
 # to keep .zshrc lean and to improve shell startup performance.
 # Alias to the maintain-system script:
 # Uses XDG_DATA_HOME if set, otherwise fall back to ~/.local/bin
-local maintain_system_bin="${XDG_DATA_HOME:-$HOME/.local/share}/../bin/maintain-system"
+maintain_system_bin="${XDG_DATA_HOME:-$HOME/.local/share}/../bin/maintain-system"
 [[ -f "$maintain_system_bin" ]] || maintain_system_bin="$HOME/.local/bin/maintain-system"
 if [[ -f "$maintain_system_bin" ]]; then
   alias update="$maintain_system_bin update"
@@ -350,7 +350,7 @@ if [[ -f "$HOME/.swiftly/env.sh" ]]; then
 fi
 
 # ================================ FZF ======================================
-local fzf_config="${XDG_CONFIG_HOME:-$HOME/.config}/fzf/fzf.zsh"
+fzf_config="${XDG_CONFIG_HOME:-$HOME/.config}/fzf/fzf.zsh"
 [[ -f "$fzf_config" ]] || fzf_config="$HOME/.fzf.zsh"
 [[ -f "$fzf_config" ]] && source "$fzf_config"
 
