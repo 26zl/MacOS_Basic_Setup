@@ -17,14 +17,16 @@ jobs:
       NONINTERACTIVE: "1"
       CI: "1"
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Quick test - Verify required files exist
+      - name: Setup and validation
         run: |
-          echo "=== Quick Test - Verifying required files ==="
+          echo "=== Setup and Validation ==="
+          
+          # Checkout code
+          echo "Checking out code..."
           
           # Check for required files
+          echo ""
+          echo "=== Verifying required files ==="
           required_files=(
             "install.sh"
             "zsh.sh"
@@ -36,9 +38,9 @@ jobs:
           for file in "${required_files[@]}"; do
             if [[ ! -f "$file" ]]; then
               missing_files+=("$file")
-              echo "❌ Missing: $file"
+              echo "Missing: $file"
             else
-              echo "✅ Found: $file"
+              echo "Found: $file"
             fi
           done
           
@@ -57,15 +59,16 @@ jobs:
           # Test syntax
           echo ""
           echo "=== Testing syntax ==="
-          zsh -n install.sh && echo "✅ install.sh syntax OK" || { echo "❌ install.sh syntax error"; exit 1; }
-          zsh -n zsh.sh && echo "✅ zsh.sh syntax OK" || { echo "❌ zsh.sh syntax error"; exit 1; }
-          zsh -n maintain-system.sh && echo "✅ maintain-system.sh syntax OK" || { echo "❌ maintain-system.sh syntax error"; exit 1; }
+          zsh -n install.sh && echo "install.sh syntax OK" || { echo "install.sh syntax error"; exit 1; }
+          zsh -n zsh.sh && echo "zsh.sh syntax OK" || { echo "zsh.sh syntax error"; exit 1; }
+          zsh -n maintain-system.sh && echo "maintain-system.sh syntax OK" || { echo "maintain-system.sh syntax error"; exit 1; }
           
           echo ""
-          echo "✅ All required files present and syntax valid"
-
-      - name: Prepare fresh user home
-        run: |
+          echo "All required files present and syntax valid"
+          
+          # Prepare fresh user home
+          echo ""
+          echo "=== Preparing fresh user home ==="
           fresh_home="$(mktemp -d)"
           echo "HOME=$fresh_home" >> "$GITHUB_ENV"
           echo "ZDOTDIR=$fresh_home" >> "$GITHUB_ENV"
@@ -74,36 +77,29 @@ jobs:
           echo "XDG_CACHE_HOME=$fresh_home/.cache" >> "$GITHUB_ENV"
           echo "NONINTERACTIVE=1" >> "$GITHUB_ENV"
           mkdir -p "$fresh_home/.local/share" "$fresh_home/.config" "$fresh_home/.cache"
+          echo "Fresh home directory prepared: $fresh_home"
 
-      - name: Install project (fresh macOS simulation)
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Installation and validation
         run: |
+          echo "=== Installation and Validation ==="
+          
+          # Install project
           echo "Testing install.sh on macOS with a clean HOME..."
           echo "HOME=$HOME"
           echo "XDG_DATA_HOME=${XDG_DATA_HOME:-not set}"
           export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-          # Files should already be executable from quick test step, but ensure they are
           chmod +x install.sh maintain-system.sh zsh.sh 2>/dev/null || true
-          # Run install.sh and capture output
           ./install.sh 2>&1 | tee install.log || true
           echo ""
           echo "=== Installation log summary ==="
           tail -50 install.log || true
+          
+          # Validate installation outputs
           echo ""
-          echo "=== Verifying critical files ==="
-          echo "Checking ~/.local/bin:"
-          ls -la "$HOME/.local/bin/" 2>/dev/null || echo "  ~/.local/bin does not exist"
-          echo "Checking XDG_DATA_HOME bin:"
-          if [[ -n "${XDG_DATA_HOME:-}" ]]; then
-            ls -la "${XDG_DATA_HOME}/../bin/" 2>/dev/null || echo "  ${XDG_DATA_HOME}/../bin does not exist"
-          fi
-          echo "Checking maintain-system:"
-          find "$HOME" -name "maintain-system" -type f 2>/dev/null | head -5 || echo "  maintain-system not found"
-          echo "Checking ~/.oh-my-zsh:"
-          ls -la "$HOME/.oh-my-zsh/" 2>/dev/null | head -5 || true
-
-      - name: Validate installation outputs
-        run: |
-          echo "Validating installed files in fresh HOME..."
+          echo "=== Validating installed files ==="
           [[ -d "$HOME/.oh-my-zsh" ]] || { echo "Missing ~/.oh-my-zsh"; exit 1; }
           [[ -f "$HOME/.zshrc" ]] || { echo "Missing ~/.zshrc"; exit 1; }
           [[ -f "$HOME/.zprofile" ]] || { echo "Missing ~/.zprofile"; exit 1; }
@@ -116,11 +112,11 @@ jobs:
           fi
           
           if [[ -x "$local_bin_1" ]]; then
-            echo "✅ maintain-system found at $local_bin_1"
+            echo "maintain-system found at $local_bin_1"
           elif [[ -n "$local_bin_2" && -x "$local_bin_2" ]]; then
-            echo "✅ maintain-system found at $local_bin_2"
+            echo "maintain-system found at $local_bin_2"
           else
-            echo "❌ Missing maintain-system binary"
+            echo "Missing maintain-system binary"
             echo "   Checked: $local_bin_1"
             [[ -n "$local_bin_2" ]] && echo "   Checked: $local_bin_2"
             find "$HOME" -name "maintain-system" -type f 2>/dev/null || true
@@ -130,40 +126,25 @@ jobs:
           [[ -d "$HOME/.oh-my-zsh/custom/themes/powerlevel10k" ]] || { echo "Missing Powerlevel10k"; exit 1; }
           [[ -d "$HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting" ]] || { echo "Missing zsh-syntax-highlighting"; exit 1; }
           [[ -d "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions" ]] || { echo "Missing zsh-autosuggestions"; exit 1; }
-
-      - name: Validate shell config content
-        run: |
-          echo "Validating shell config content..."
+          
+          # Validate shell config content
+          echo ""
+          echo "=== Validating shell config content ==="
           cmp -s zsh.sh "$HOME/.zshrc" || { echo "zsh.sh was not installed to ~/.zshrc as expected"; exit 1; }
           grep -q "FINAL PATH CLEANUP (FOR .ZPROFILE)" "$HOME/.zprofile" || { echo "Missing PATH cleanup block in ~/.zprofile"; exit 1; }
           grep -q "maintain_system_bin" "$HOME/.zshrc" || { echo "Missing maintain_system_bin in ~/.zshrc"; exit 1; }
-          
-          # Check if alias will be created (maintain-system must exist and be executable)
-          echo "Checking if maintain-system exists for alias creation..."
-          local_bin_1="$HOME/.local/bin/maintain-system"
-          local_bin_2=""
-          if [[ -n "${XDG_DATA_HOME:-}" ]]; then
-            local_bin_2="${XDG_DATA_HOME}/../bin/maintain-system"
-          fi
-          
-          if [[ -x "$local_bin_1" ]]; then
-            echo "✅ maintain-system found at $local_bin_1 (executable)"
-          elif [[ -n "$local_bin_2" && -x "$local_bin_2" ]]; then
-            echo "✅ maintain-system found at $local_bin_2 (executable)"
-          else
-            echo "⚠️  maintain-system not found or not executable - alias will not be created"
-            echo "   Checked: $local_bin_1"
-            [[ -n "$local_bin_2" ]] && echo "   Checked: $local_bin_2"
-          fi
-          
-          # The alias is conditional in zsh.sh, so we check if the condition would be met
-          # If maintain-system exists, the alias should be created when zsh loads
-          grep -q "alias update=" "$HOME/.zshrc" && echo "✅ update alias definition found in ~/.zshrc" || echo "⚠️  update alias definition not found (may be conditional)"
+          grep -q "alias update=" "$HOME/.zshrc" && echo "update alias definition found in ~/.zshrc" || echo "update alias definition not found (may be conditional)"
           grep -q "powerlevel10k/powerlevel10k" "$HOME/.zshrc" || { echo "Missing Powerlevel10k theme in ~/.zshrc"; exit 1; }
           grep -q "oh-my-zsh.sh" "$HOME/.zshrc" || { echo "Missing Oh My Zsh source line in ~/.zshrc"; exit 1; }
+          
+          echo ""
+          echo "Installation and validation complete"
 
-      - name: Validate PATH and tools in login shell
+      - name: Shell configuration and PATH
         run: |
+          echo "=== Shell Configuration and PATH ==="
+          
+          # Validate PATH and tools in login shell
           echo "Validating PATH and tools via login shell..."
           zsh -lc 'command -v maintain-system >/dev/null' || { echo "maintain-system not in PATH"; exit 1; }
           zsh -lc 'command -v git >/dev/null' || { echo "git not available in login shell"; exit 1; }
@@ -176,132 +157,133 @@ jobs:
             case ":$PATH:" in *":$ms_dir:"*) exit 0 ;; *) exit 1 ;; esac
           ' || { echo "PATH missing maintain-system directory"; exit 1; }
           zsh -lc 'prefix=$(brew --prefix 2>/dev/null || true); if [[ -n "$prefix" ]]; then case "$PATH" in "$prefix/bin:"*) exit 0 ;; *) exit 1 ;; esac; fi' || { echo "Homebrew bin not first in PATH"; exit 1; }
-
-      - name: Test PATH cleanup functionality
-        run: |
+          
+          # Test PATH cleanup functionality
+          echo ""
           echo "Testing PATH cleanup in .zprofile..."
-          # Source .zprofile to test PATH cleanup
           zsh -lc '
-            # Check that PATH cleanup block exists
             if grep -q "FINAL PATH CLEANUP (FOR .ZPROFILE)" "$HOME/.zprofile"; then
-              echo "✅ PATH cleanup block found in .zprofile"
+              echo "PATH cleanup block found in .zprofile"
             else
-              echo "❌ PATH cleanup block missing"
+              echo "PATH cleanup block missing"
               exit 1
             fi
             
-            # Test that Homebrew comes before /usr/bin
             prefix=$(brew --prefix 2>/dev/null || echo "")
             if [[ -n "$prefix" ]]; then
               if [[ "$PATH" == "$prefix/bin:"* ]]; then
-                echo "✅ Homebrew bin is first in PATH"
+                echo "Homebrew bin is first in PATH"
               else
-                echo "❌ Homebrew bin is not first in PATH"
+                echo "Homebrew bin is not first in PATH"
                 echo "   PATH starts with: ${PATH%%:*}"
                 exit 1
               fi
             fi
           ' || exit 1
-
-      - name: Test alias functionality
-        run: |
-          echo "Testing update alias definition..."
+          
+          # Test alias functionality
+          echo ""
+          echo "Testing alias functionality..."
           if grep -q "alias update=" "$HOME/.zshrc"; then
-            echo "✅ update alias definition exists in ~/.zshrc"
+            echo "update alias definition exists in ~/.zshrc"
           else
-            echo "❌ update alias definition missing in ~/.zshrc"
+            echo "update alias definition missing in ~/.zshrc"
             exit 1
           fi
           
           if grep -q "maintain_system_bin" "$HOME/.zshrc"; then
-            echo "✅ maintain_system_bin is defined in ~/.zshrc"
+            echo "maintain_system_bin is defined in ~/.zshrc"
           else
-            echo "❌ maintain_system_bin missing in ~/.zshrc"
+            echo "maintain_system_bin missing in ~/.zshrc"
             exit 1
           fi
           
           if zsh -lc 'command -v maintain-system >/dev/null'; then
-            echo "✅ maintain-system is available in PATH"
+            echo "maintain-system is available in PATH"
           else
-            echo "❌ maintain-system not available in PATH"
+            echo "maintain-system not available in PATH"
             exit 1
           fi
+          
+          echo ""
+          echo "Shell configuration and PATH validation complete"
 
-      - name: Test output validation - verify command
+      - name: Command testing
         run: |
+          echo "=== Command Testing ==="
+          
+          # Test verify command
           echo "Testing verify command output..."
           zsh -lc 'maintain-system verify' 2>&1 | tee verify_output.txt
           
-          # Check that verify output contains expected format
           if grep -qE "^[A-Za-z][A-Za-z0-9_-]*[[:space:]]+(OK|WARN|Not installed)" verify_output.txt; then
-            echo "✅ verify output has correct format"
+            echo "verify output has correct format"
           else
-            echo "❌ verify output format incorrect"
+            echo "verify output format incorrect"
             cat verify_output.txt
             exit 1
           fi
           
-          # Check that verify reports completion
           if grep -q "Verify done\|==> Verify" verify_output.txt; then
-            echo "✅ verify command completed"
+            echo "verify command completed"
           else
-            echo "❌ verify command did not complete"
+            echo "verify command did not complete"
             exit 1
           fi
-
-      - name: Test output validation - versions command
-        run: |
+          
+          # Test versions command
+          echo ""
           echo "Testing versions command output..."
           zsh -lc 'maintain-system versions' 2>&1 | tee versions_output.txt
           
-          # Check that versions output contains expected format
           if grep -qE "^[A-Za-z][A-Za-z0-9_-]*[[:space:]]+\." versions_output.txt || grep -q "TOOL VERSIONS" versions_output.txt; then
-            echo "✅ versions output has correct format"
+            echo "versions output has correct format"
           else
-            echo "❌ versions output format incorrect"
+            echo "versions output format incorrect"
             cat versions_output.txt
             exit 1
           fi
           
-          # Check that versions reports completion
           if grep -q "TOOL VERSIONS\|===" versions_output.txt; then
-            echo "✅ versions command completed"
+            echo "versions command completed"
           else
-            echo "❌ versions command did not complete"
+            echo "versions command did not complete"
             exit 1
           fi
-
-      - name: Test error handling - missing tools
-        run: |
+          
+          # Test error handling
+          echo ""
           echo "Testing error handling for missing tools..."
           zsh -lc '
-            # Test that maintain-system handles missing tools gracefully
-            # Note: We test with verify which checks for missing tools, not by removing tools
             output=$(maintain-system verify 2>&1)
             
-            # Should not exit with error code for missing optional tools
             if echo "$output" | grep -q "Not installed\|WARN"; then
-              echo "✅ Script handles missing tools gracefully (shows warnings)"
+              echo "Script handles missing tools gracefully (shows warnings)"
             else
-              echo "⚠️  No missing tools detected (this is OK if all tools are installed)"
+              echo "No missing tools detected (this is OK if all tools are installed)"
             fi
             
-            # Test that script doesn't crash on missing package managers
             if maintain-system verify >/dev/null 2>&1; then
-              echo "✅ Script handles missing package managers gracefully"
+              echo "Script handles missing package managers gracefully"
             else
-              echo "❌ Script failed on missing package managers"
+              echo "Script failed on missing package managers"
               exit 1
             fi
           ' || exit 1
+          
+          echo ""
+          echo "Command testing complete"
 
-      - name: Test integration - update command
+      - name: Feature testing
         env:
           MAINTAIN_SYSTEM_CLEAN_PYENV: "0"
           MAINTAIN_SYSTEM_CLEAN_NVM: "0"
           MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS: "1"
         run: |
-          echo "Testing integration - update command..."
+          echo "=== Feature Testing ==="
+          
+          # Test update command
+          echo "Testing update command..."
           python3 - <<'PYTHON_SCRIPT'
           import subprocess
           import sys
@@ -316,197 +298,167 @@ jobs:
               sys.exit(124)
 
           Path("update_output.txt").write_text(output)
-
           lines = output.splitlines()
           print("\n".join(lines[-200:]))
           
-          # Check that update completed
           if "Update finished" not in output:
               print("Update did not report completion")
               sys.exit(1)
           
-          # Check that update actually did something (not just ran)
           if any(keyword in output.lower() for keyword in ["updated", "upgraded", "installed", "success", "already up-to-date"]):
-              print("✅ Update command executed and reported activity")
+              print("Update command executed and reported activity")
           else:
-              print("⚠️  Update command completed but no activity reported")
+              print("Update command completed but no activity reported")
           
-          # Check for errors
           if any(keyword in output.lower() for keyword in ["error", "failed", "fatal"]):
-              print("⚠️  Update reported some errors (may be OK for optional tools)")
+              print("Update reported some errors (may be OK for optional tools)")
           else:
-              print("✅ Update completed without fatal errors")
+              print("Update completed without fatal errors")
           PYTHON_SCRIPT
-
-      - name: Test system Python/Ruby protection
-        run: |
+          
+          # Test system Python/Ruby protection
+          echo ""
           echo "Testing system Python/Ruby protection..."
           zsh -lc '
             if [[ ! -f update_output.txt ]]; then
-              echo "❌ update_output.txt not found (update step may have failed)"
+              echo "update_output.txt not found (update step may have failed)"
               exit 1
             fi
 
-            # Check if system Python is detected
             if [[ -f /usr/bin/python3 ]] || find /System/Library/Frameworks/Python.framework/Versions -type f -path "*/bin/python3" -print -quit 2>/dev/null | grep -q .; then
-              echo "✅ System Python detected"
-              
-              # Test that maintain-system doesn't try to modify system Python
+              echo "System Python detected"
               if grep -qi "system python" update_output.txt; then
-                echo "✅ System Python protection working (skipped in update)"
+                echo "System Python protection working (skipped in update)"
               else
-                echo "⚠️  System Python protection message not found (may be OK if no system Python)"
+                echo "System Python protection message not found (may be OK if no system Python)"
               fi
             else
-              echo "⚠️  No system Python found (this is OK)"
+              echo "No system Python found (this is OK)"
             fi
             
-            # Check if system Ruby is detected
             if [[ -f /usr/bin/ruby ]] || find /System/Library/Frameworks/Ruby.framework/Versions -type f -path "*/bin/ruby" -print -quit 2>/dev/null | grep -q .; then
-              echo "✅ System Ruby detected"
-              
-              # Test that maintain-system doesn't try to modify system Ruby
+              echo "System Ruby detected"
               if grep -qi "system ruby" update_output.txt; then
-                echo "✅ System Ruby protection working (skipped in update)"
+                echo "System Ruby protection working (skipped in update)"
               else
-                echo "⚠️  System Ruby protection message not found (may be OK if no system Ruby)"
+                echo "System Ruby protection message not found (may be OK if no system Ruby)"
               fi
             else
-              echo "⚠️  No system Ruby found (this is OK)"
+              echo "No system Ruby found (this is OK)"
             fi
           ' || exit 1
-
-      - name: Test environment variables
-        run: |
+          
+          # Test environment variables
+          echo ""
           echo "Testing environment variables..."
           zsh -lc '
             if [[ ! -f update_output.txt ]]; then
-              echo "❌ update_output.txt not found (update step may have failed)"
+              echo "update_output.txt not found (update step may have failed)"
               exit 1
             fi
 
-            # Test MAINTAIN_SYSTEM_CLEAN_PYENV=0
             if grep -qi "pyenv.*cleanup disabled" update_output.txt; then
-              echo "✅ MAINTAIN_SYSTEM_CLEAN_PYENV=0 works"
+              echo "MAINTAIN_SYSTEM_CLEAN_PYENV=0 works"
             else
-              echo "⚠️  MAINTAIN_SYSTEM_CLEAN_PYENV=0 test inconclusive (may be OK if pyenv not installed)"
+              echo "MAINTAIN_SYSTEM_CLEAN_PYENV=0 test inconclusive (may be OK if pyenv not installed)"
             fi
             
-            # Test MAINTAIN_SYSTEM_CLEAN_NVM=0
             if grep -qi "nvm.*cleanup disabled" update_output.txt; then
-              echo "✅ MAINTAIN_SYSTEM_CLEAN_NVM=0 works"
+              echo "MAINTAIN_SYSTEM_CLEAN_NVM=0 works"
             else
-              echo "⚠️  MAINTAIN_SYSTEM_CLEAN_NVM=0 test inconclusive (may be OK if nvm not installed)"
+              echo "MAINTAIN_SYSTEM_CLEAN_NVM=0 test inconclusive (may be OK if nvm not installed)"
             fi
             
-            # Test MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS=1
-            echo "✅ MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS=1 set (will be used if swiftly is installed)"
+            echo "MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS=1 set (will be used if swiftly is installed)"
           ' || exit 1
-
-      - name: Test Go permanent configuration
-        run: |
+          
+          # Test Go permanent configuration
+          echo ""
           echo "Testing Go permanent configuration..."
           zsh -lc '
-            # Check if Go is installed
             if command -v go >/dev/null 2>&1; then
-              echo "✅ Go is installed"
-              
-              # Check if .zprofile contains Go configuration marker
+              echo "Go is installed"
               if grep -q "Managed by macOS Development Environment Setup - Go configuration" "$HOME/.zprofile" 2>/dev/null; then
-                echo "✅ Go configuration marker found in .zprofile"
+                echo "Go configuration marker found in .zprofile"
               else
-                echo "⚠️  Go configuration marker not found (may be OK if Go was not updated)"
+                echo "Go configuration marker not found (may be OK if Go was not updated)"
               fi
-              
-              # Check if GOROOT is set in .zprofile
               if grep -q "export GOROOT=" "$HOME/.zprofile" 2>/dev/null; then
-                echo "✅ GOROOT export found in .zprofile"
+                echo "GOROOT export found in .zprofile"
               else
-                echo "⚠️  GOROOT export not found (may be OK if Go was not updated)"
+                echo "GOROOT export not found (may be OK if Go was not updated)"
               fi
             else
-              echo "⚠️  Go is not installed (this is OK - Go requires manual installation)"
+              echo "Go is not installed (this is OK - Go requires manual installation)"
             fi
           ' || exit 1
-
-      - name: Test Homebrew auto-install
-        run: |
+          
+          # Test Homebrew auto-install
+          echo ""
           echo "Testing Homebrew auto-install..."
-          # This test is tricky because Homebrew is already installed in CI
-          # We'll test that the auto-install logic exists in maintain-system
           zsh -lc '
-            # Check if maintain-system has Homebrew auto-install logic
             if grep -q "Auto-install Homebrew\|Not found, attempting to install" "$(command -v maintain-system)" 2>/dev/null; then
-              echo "✅ Homebrew auto-install logic detected"
+              echo "Homebrew auto-install logic detected"
             else
-              echo "⚠️  Homebrew auto-install logic not found (may be OK if Homebrew is always present)"
+              echo "Homebrew auto-install logic not found (may be OK if Homebrew is always present)"
             fi
           ' || exit 1
-
-      - name: Test Swift installation
-        run: |
+          
+          # Test Swift installation
+          echo ""
           echo "Testing Swift installation..."
           zsh -lc '
-            # Check if swiftly is available
             if command -v swiftly >/dev/null 2>&1; then
-              echo "✅ swiftly is installed"
-              
-              # Test that maintain-system can handle Swift
+              echo "swiftly is installed"
               output=$(maintain-system verify 2>&1 | grep -i "swift" || true)
               if echo "$output" | grep -qi "swift"; then
-                echo "✅ Swift is detected in verify"
+                echo "Swift is detected in verify"
               else
-                echo "⚠️  Swift not detected in verify (may be OK if not installed)"
+                echo "Swift not detected in verify (may be OK if not installed)"
               fi
             else
-              echo "⚠️  swiftly is not installed (this is OK - Swift is optional)"
+              echo "swiftly is not installed (this is OK - Swift is optional)"
             fi
           ' || exit 1
-
-      - name: Test Nix maintenance script
-        run: |
+          
+          # Test Nix maintenance script
+          echo ""
           echo "Testing Nix maintenance script..."
           if [[ -f scripts/nix-macos-maintenance.sh ]]; then
             chmod +x scripts/nix-macos-maintenance.sh
-            # Test syntax
-            bash -n scripts/nix-macos-maintenance.sh && echo "✅ nix-macos-maintenance.sh syntax OK" || { echo "❌ nix-macos-maintenance.sh syntax error"; exit 1; }
+            bash -n scripts/nix-macos-maintenance.sh && echo "nix-macos-maintenance.sh syntax OK" || { echo "nix-macos-maintenance.sh syntax error"; exit 1; }
             
-            # Test help command
             if ./scripts/nix-macos-maintenance.sh help >/dev/null 2>&1; then
-              echo "✅ nix-macos-maintenance.sh help command works"
+              echo "nix-macos-maintenance.sh help command works"
             else
-              echo "❌ nix-macos-maintenance.sh help command failed"
+              echo "nix-macos-maintenance.sh help command failed"
               exit 1
             fi
             
-            # Test status command (should work even if Nix is not installed)
             if ./scripts/nix-macos-maintenance.sh status >/dev/null 2>&1; then
-              echo "✅ nix-macos-maintenance.sh status command works"
+              echo "nix-macos-maintenance.sh status command works"
             else
-              echo "⚠️  nix-macos-maintenance.sh status command failed (may be OK if Nix not installed)"
+              echo "nix-macos-maintenance.sh status command failed (may be OK if Nix not installed)"
             fi
           else
-            echo "❌ scripts/nix-macos-maintenance.sh not found"
+            echo "scripts/nix-macos-maintenance.sh not found"
             exit 1
           fi
-
-      - name: Test edge cases - existing configuration
-        run: |
+          
+          # Test edge cases
+          echo ""
           echo "Testing edge cases with existing configuration..."
           zsh -lc '
-            # Test that install.sh handles existing .zshrc gracefully
             if [[ -f "$HOME/.zshrc" ]]; then
-              # Create a backup
               cp "$HOME/.zshrc" "$HOME/.zshrc.test-backup"
-              
-              # Try to install again (should create backup)
               if ./install.sh 2>&1 | grep -q "backup\|Backing up"; then
-                echo "✅ install.sh handles existing .zshrc (creates backup)"
+                echo "install.sh handles existing .zshrc (creates backup)"
               else
-                echo "⚠️  install.sh backup logic not tested (may be OK)"
+                echo "install.sh backup logic not tested (may be OK)"
               fi
-              
-              # Restore backup
               mv "$HOME/.zshrc.test-backup" "$HOME/.zshrc" 2>/dev/null || true
             fi
           ' || exit 1
+          
+          echo ""
+          echo "Feature testing complete"

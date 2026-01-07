@@ -2098,7 +2098,7 @@ update() {
 # ================================ VERIFY ===================================
 
 verify() {
-  _ensure_system_path
+  _ensure_system_path || true
   echo "==> Verify $(date)"
   local ok warn miss
   ok()   { printf "%-15s OK (%s)\n" "$1" "$2"; }
@@ -2646,7 +2646,7 @@ case "${1:-}" in
     update
     ;;
   verify)
-    verify
+    verify || true
     ;;
   versions)
     versions

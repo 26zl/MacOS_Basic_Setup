@@ -65,7 +65,7 @@ jobs:
               fi
             done
           fi
-          echo "✅ All scripts have valid syntax"
+          echo "All scripts have valid syntax"
 
   file-existence:
     name: Required Files Check
@@ -93,9 +93,9 @@ jobs:
           done
           
           if [ ${#missing_files[@]} -ne 0 ]; then
-            echo "❌ Missing required files:"
+            echo "Missing required files:"
             printf '  - %s\n' "${missing_files[@]}"
             exit 1
           fi
           
-          echo "✅ All required files exist"
+          echo "All required files exist"
