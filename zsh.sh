@@ -186,15 +186,23 @@ if command -v pyenv >/dev/null 2>&1; then
     if [[ -n "$active_python" ]]; then
       # Resolve symlinks to get the actual Python binary
       local resolved_python=$(cd -P "$(dirname "$active_python")" 2>/dev/null && pwd)/$(basename "$active_python")
-      # If resolved path doesn't exist, try python3.14, python3, or python
+      # If resolved path doesn't exist, try to find python3.x dynamically, python3, or python
       if [[ ! -f "$resolved_python" ]]; then
         local python_dir=$(dirname "$active_python")
-        if [[ -f "$python_dir/python3.14" ]]; then
-          resolved_python="$python_dir/python3.14"
-        elif [[ -f "$python_dir/python3" ]]; then
-          resolved_python="$python_dir/python3"
-        elif [[ -f "$python_dir/python" ]]; then
-          resolved_python="$python_dir/python"
+        local found_python=""
+        # First try python3 (most common)
+        if [[ -f "$python_dir/python3" ]]; then
+          found_python="$python_dir/python3"
+        # Then try to find highest python3.x version dynamically
+        elif command -v ls >/dev/null 2>&1; then
+          found_python=$(ls -1 "$python_dir"/python3.* 2>/dev/null | grep -E 'python3\.[0-9]+$' | sort -V | tail -n1 || echo "")
+        fi
+        # Fallback to python if nothing else found
+        if [[ -z "$found_python" && -f "$python_dir/python" ]]; then
+          found_python="$python_dir/python"
+        fi
+        if [[ -n "$found_python" && -f "$found_python" ]]; then
+          resolved_python="$found_python"
         else
           resolved_python="$active_python"
         fi

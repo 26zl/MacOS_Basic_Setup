@@ -68,3 +68,4 @@ trivy-results.sarif
 
 .swift-version
 .build/
+*instructions/

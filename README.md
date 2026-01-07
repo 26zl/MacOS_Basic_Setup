@@ -82,7 +82,7 @@ Swift toolchain management via `swiftly`:
 
 ### Prerequisites
 
-`update` gracefully skips missing tools. Missing package managers (MacPorts, Nix, Conda, pipx) and version managers (pyenv, nvm, chruby, rustup, swiftly) are skipped. Homebrew will auto-install if missing. Go and Java require manual installation.
+`update` gracefully skips missing tools. Missing package managers (MacPorts, Nix, Conda, pipx) and version managers (pyenv, nvm, chruby, rustup, swiftly) are skipped. Homebrew will auto-install if missing (via `update` command). Go and Java require manual installation.
 
 ### Configuration
 
@@ -134,7 +134,7 @@ Recommended tools: [Objective-See](https://objective-see.org/tools.html) (Lulu, 
 
 ## Requirements
 
-macOS (Intel or Apple Silicon), Zsh, internet connection. Homebrew and Git recommended (auto-installed if missing).
+macOS (Intel or Apple Silicon), Zsh, internet connection. Homebrew and Git are auto-installed by `install.sh` if missing. Homebrew will also auto-install if missing when running `update`.
 
 ## Testing
 

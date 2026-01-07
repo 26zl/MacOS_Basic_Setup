@@ -41,6 +41,37 @@ _detect_brew_prefix() {
 HOMEBREW_PREFIX="$(_detect_brew_prefix)"
 
 
+# Function to install Git if not present
+install_git() {
+  if ! command -v git >/dev/null 2>&1; then
+    echo "${YELLOW}📦 Git not found. Installing Git...${NC}"
+    # Try to install via Homebrew first (if available)
+    if [[ -n "$HOMEBREW_PREFIX" ]] && command -v brew >/dev/null 2>&1; then
+      if brew install git 2>/dev/null; then
+        echo "${GREEN}✅ Git installed via Homebrew${NC}"
+        return 0
+      fi
+    fi
+    # If Homebrew not available, try to install Xcode Command Line Tools (which includes Git)
+    echo "${YELLOW}📦 Installing Xcode Command Line Tools (includes Git)...${NC}"
+    if xcode-select --install 2>/dev/null; then
+      echo "${GREEN}✅ Xcode Command Line Tools installation started${NC}"
+      echo "${YELLOW}⚠️  Please complete the installation dialog and run this script again${NC}"
+      exit 0
+    elif xcode-select -p >/dev/null 2>&1; then
+      # CLT already installed, Git should be available
+      if command -v git >/dev/null 2>&1; then
+        echo "${GREEN}✅ Git found (via Xcode Command Line Tools)${NC}"
+        return 0
+      fi
+    fi
+    echo "${RED}❌ Failed to install Git${NC}"
+    return 1
+  else
+    echo "${GREEN}✅ Git found: $(git --version)${NC}"
+  fi
+}
+
 # Function to install Homebrew if not present
 install_homebrew() {
   if [[ -z "$HOMEBREW_PREFIX" ]]; then
@@ -262,6 +293,9 @@ main() {
   echo ""
   echo "Starting installation..."
   echo ""
+  
+  # Install Git if needed
+  install_git
   
   # Install Homebrew if needed
   install_homebrew

@@ -145,7 +145,7 @@ _fix_all_ruby_gems() {
       
       # Uninstall and reinstall (non-interactive)
       gem uninstall "$gem" --ignore-dependencies --force --no-user-install 2>/dev/null || true
-      if gem install "$gem" --no-user-install 2>/dev/null; then
+      if gem install "$gem" --no-user-install --no-document 2>/dev/null; then
         ((fixed_count++))
         echo "    SUCCESS: Fixed $gem"
       else
@@ -242,6 +242,53 @@ _check_python_upgrade_compatibility() {
     echo "  SUCCESS: All packages are compatible with new Python version"
     return 0
   fi
+}
+
+# ================================ GO HELPERS =============================
+
+# Setup permanent Go configuration in .zprofile
+_setup_go_permanent() {
+  local goroot="$1"
+  [[ -z "$goroot" || ! -d "$goroot" ]] && return 1
+  
+  local zprofile="$HOME/.zprofile"
+  local marker="# Managed by macOS Development Environment Setup - Go configuration"
+  local go_config_block="export GOROOT=\"$goroot\"
+export PATH=\"\$GOROOT/bin:\$PATH\""
+
+  # Check if Go config already exists
+  if [[ -f "$zprofile" ]] && grep -q "$marker" "$zprofile" 2>/dev/null; then
+    # Update existing Go config - use sed to replace the GOROOT line
+    local temp_file=$(mktemp)
+    local in_go_block=false
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" == *"$marker"* ]]; then
+        in_go_block=true
+        echo "$line"
+        echo "$go_config_block"
+        continue
+      fi
+      if [[ "$in_go_block" == true ]]; then
+        # Skip old Go config lines (export GOROOT or export PATH with GOROOT)
+        if [[ "$line" =~ ^[[:space:]]*export[[:space:]]+GOROOT ]] || [[ "$line" =~ ^[[:space:]]*export[[:space:]]+PATH.*GOROOT ]]; then
+          continue
+        fi
+        # Hit end of Go block, stop skipping
+        in_go_block=false
+      fi
+      echo "$line"
+    done < "$zprofile" > "$temp_file"
+    mv "$temp_file" "$zprofile"
+  else
+    # Append new Go config
+    {
+      echo ""
+      echo "$marker"
+      echo "$go_config_block"
+    } >> "$zprofile"
+  fi
+  
+  return 0
 }
 
 # ================================ PYENV HELPERS =============================
@@ -507,21 +554,93 @@ _go_update_toolchain() {
     echo "  Updating Go via Homebrew..."
     if brew upgrade go 2>/dev/null; then
       local new_version=$(go version | awk '{print $3}' | sed 's/go//')
-      echo "  SUCCESS: Updated to Go $new_version"
+      # Get GOROOT from updated Go
+      local new_goroot=$(go env GOROOT 2>/dev/null || echo "")
+      if [[ -n "$new_goroot" && -d "$new_goroot" ]]; then
+        # Make it permanent
+        _setup_go_permanent "$new_goroot"
+      fi
+      echo "  SUCCESS: Updated to Go $new_version (permanent configuration added to .zprofile)"
     else
       go_errors+=("homebrew_upgrade")
       echo "  WARNING: Homebrew upgrade failed"
     fi
   else
-    # Method 2: Use go install to update (Go 1.17+)
+    # Method 2: Use go install to download newest toolchain (make permanent)
     echo "  Checking for Go updates via go install..."
-    if go install golang.org/dl/go@latest 2>/dev/null; then
-      # Try to download latest version
+    # Check if Go module proxy is accessible
+    if ! go env GOPROXY >/dev/null 2>&1; then
+      echo "  INFO: Go module proxy not configured, skipping go install method"
+      echo "  INFO: Go is already installed ($current_version)"
+    elif go install golang.org/dl/go@latest 2>/dev/null; then
+      # Check latest available version
       local latest_go=$(go list -m -f '{{.Version}}' golang.org/dl/go@latest 2>/dev/null || echo "")
       if [[ -n "$latest_go" ]]; then
-        echo "  INFO: Latest Go version available: $latest_go"
-        echo "  INFO: Run 'go install golang.org/dl/go${latest_go#go}@latest' to install"
+        # Extract version number
+        local latest_version="${latest_go#go}"
+        local current_version_num="${current_version#go}"
+        
+        # Check if latest differs from current
+        if [[ "$latest_version" != "$current_version_num" ]]; then
+          echo "  Latest available: Go $latest_version (current: $current_version_num)"
+          
+          # Install the specific version downloader
+          local go_downloader="go${latest_version}"
+          echo "  Installing Go $latest_version downloader..."
+          if go install "golang.org/dl/${go_downloader}@latest" 2>/dev/null; then
+            # Download the Go version
+            echo "  Downloading Go $latest_version..."
+            if "$go_downloader" download 2>/dev/null; then
+              # The downloaded version is now available via $go_downloader command
+              # To use it as default, we need to set GOROOT or use it directly
+              # First, verify the download worked
+              local downloaded_version=$("$go_downloader" version 2>/dev/null | awk '{print $3}' | sed 's/go//' || echo "")
+              if [[ -n "$downloaded_version" ]]; then
+                # Get GOROOT from the downloaded version
+                local new_goroot=$("$go_downloader" env GOROOT 2>/dev/null || echo "")
+                if [[ -n "$new_goroot" && -d "$new_goroot" ]]; then
+                  # Set GOROOT to the new version (this will make 'go' use the new version)
+                  export GOROOT="$new_goroot"
+                  export PATH="$new_goroot/bin:$PATH"
+                  hash -r 2>/dev/null || true
+                  
+                  # Make it permanent by updating .zprofile
+                  _setup_go_permanent "$new_goroot"
+                  
+                  # Verify the new version is active
+                  local new_version=$(go version 2>/dev/null | awk '{print $3}' | sed 's/go//' || echo "")
+                if [[ "$new_version" == "$downloaded_version" ]]; then
+                  echo "  SUCCESS: Updated to Go $new_version (permanent configuration added to .zprofile)"
+                else
+                    echo "  WARNING: Go version downloaded but verification failed (expected: $downloaded_version, got: $new_version)"
+                    go_errors+=("version_mismatch")
+                  fi
+                else
+                  echo "  WARNING: Failed to get GOROOT for Go $latest_version"
+                  go_errors+=("goroot_missing")
+                fi
+              else
+                echo "  WARNING: Failed to verify downloaded Go $latest_version"
+                go_errors+=("version_verify")
+              fi
+            else
+              echo "  WARNING: Failed to download Go $latest_version"
+              go_errors+=("version_download")
+            fi
+          else
+            echo "  WARNING: Failed to install Go $latest_version downloader"
+            go_errors+=("downloader_install")
+          fi
+        else
+          echo "  Go is already at latest version ($current_version_num)"
+        fi
+      else
+        echo "  WARNING: Could not determine latest Go version"
+        go_errors+=("version_check")
       fi
+    else
+      echo "  WARNING: Failed to install Go downloader tool"
+      go_errors+=("downloader_base")
     fi
   fi
   
@@ -724,6 +843,24 @@ update() {
   
   local HOMEBREW_PREFIX="$(_detect_brew_prefix)"
 
+  # Auto-install Homebrew if missing
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "[Homebrew] Not found, attempting to install..."
+    if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >/dev/null 2>&1; then
+      # Add Homebrew to PATH for this session
+      if [[ -d /opt/homebrew ]]; then
+        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+      elif [[ -d /usr/local/Homebrew ]]; then
+        export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
+      fi
+      hash -r 2>/dev/null || true
+      echo "  SUCCESS: Homebrew installed"
+    else
+      echo "  WARNING: Homebrew installation failed, skipping Homebrew updates"
+      return 0
+    fi
+  fi
+  
   if command -v brew >/dev/null 2>&1; then
     echo "[Homebrew] update/upgrade/cleanup..."
     local brew_errors=()
@@ -971,15 +1108,23 @@ update() {
           fi
         fi
         
-        # Ensure we have a valid Python binary (try python3.14, python3, or python)
+        # Ensure we have a valid Python binary (try python3.x versions dynamically, python3, or python)
         if [[ ! -f "$actual_python" ]]; then
           local python_dir=$(dirname "$actual_python")
-          if [[ -f "$python_dir/python3.14" ]]; then
-            actual_python="$python_dir/python3.14"
-          elif [[ -f "$python_dir/python3" ]]; then
-            actual_python="$python_dir/python3"
-          elif [[ -f "$python_dir/python" ]]; then
-            actual_python="$python_dir/python"
+          local found_python=""
+          # First try python3 (most common)
+          if [[ -f "$python_dir/python3" ]]; then
+            found_python="$python_dir/python3"
+          # Then try to find highest python3.x version dynamically
+          elif command -v ls >/dev/null 2>&1; then
+            found_python=$(ls -1 "$python_dir"/python3.* 2>/dev/null | grep -E 'python3\.[0-9]+$' | sort -V | tail -n1 || echo "")
+          fi
+          # Fallback to python if nothing else found
+          if [[ -z "$found_python" && -f "$python_dir/python" ]]; then
+            found_python="$python_dir/python"
+          fi
+          if [[ -n "$found_python" && -f "$found_python" ]]; then
+            actual_python="$found_python"
           fi
         fi
         
@@ -1232,7 +1377,7 @@ update() {
   
   if command -v gem >/dev/null 2>&1; then
     echo "[RubyGems] Updating and cleaning gems..."
-    gem update --silent || true
+    gem update --silent --no-document || true
     gem cleanup || true
   fi
   
@@ -1368,20 +1513,21 @@ update() {
       fi
       
       # Determine target version (prefer stable unless snapshot is explicitly requested)
-      local target_version=""
+      local swift_target_version=""
       if [[ -n "$latest_stable" && "$latest_stable" != "$current_swift" ]]; then
-        target_version="$latest_stable"
+        swift_target_version="$latest_stable"
       elif [[ -n "$latest_snapshot" && "$latest_snapshot" != "$current_swift" && "$is_snapshot" == "true" ]]; then
-        target_version="$latest_snapshot"
+        swift_target_version="$latest_snapshot"
       fi
       
-      if [[ -n "$target_version" ]]; then
-        echo "  Latest available: Swift $target_version"
-        if echo "y" | swiftly install "$target_version" --global-default 2>/dev/null; then
-          echo "  SUCCESS: Updated to Swift $target_version"
+      if [[ -n "$swift_target_version" ]]; then
+        echo "  Latest available: Swift $swift_target_version"
+        # Use --assume-yes to avoid prompts, and --use to set as active
+        if swiftly install "$swift_target_version" --assume-yes --use 2>/dev/null; then
+          echo "  SUCCESS: Updated to Swift $swift_target_version"
           hash -r 2>/dev/null || true
         else
-          echo "  WARNING: Failed to install Swift $target_version"
+          echo "  WARNING: Failed to install Swift $swift_target_version"
         fi
       else
         echo "  Swift is up to date ($current_swift)"
@@ -1410,13 +1556,19 @@ update() {
           echo "  WARNING: Failed to activate Swift $installed_swift"
         fi
       else
-        # Try to install latest stable if no version is installed
+        # Install latest stable if no version is installed
         # swiftly list-available outputs "Swift X.Y.Z" format, we need the version number
         local latest_stable="$(swiftly list-available 2>/dev/null | grep -E '^Swift [0-9]+\.[0-9]+\.[0-9]+' | head -n1 | awk '{print $2}' || echo "")"
         if [[ -n "$latest_stable" && "$latest_stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-          echo "  INFO: Latest stable available: Swift $latest_stable"
-          echo "  INFO: Run 'swiftly install $latest_stable' to install"
+          echo "  Installing latest stable: Swift $latest_stable"
+          if swiftly install "$latest_stable" --assume-yes --use 2>/dev/null; then
+            echo "  SUCCESS: Installed Swift $latest_stable"
+            hash -r 2>/dev/null || true
+          else
+            echo "  WARNING: Failed to install Swift $latest_stable"
+          fi
         else
+          echo "  INFO: Could not determine latest stable version"
           echo "  INFO: Run 'swiftly list-available' to see available Swift versions"
         fi
       fi
@@ -1552,18 +1704,18 @@ update() {
       
       if [[ -n "$upgrade_preview" ]]; then
         # Parse target version from preview output
-        local target_version
-        target_version=$(echo "$upgrade_preview" | grep -iE "would upgrade to version|upgrade to" | sed -E 's/.*[vV]?([0-9]+\.[0-9]+\.[0-9]+).*/\1/' | head -1 || echo "")
+        local nix_target_version=""
+        nix_target_version=$(echo "$upgrade_preview" | grep -iE "would upgrade to version|upgrade to" | sed -E 's/.*[vV]?([0-9]+\.[0-9]+\.[0-9]+).*/\1/' | head -1 || echo "")
         
         # Only process if we have a valid target version (suppress debug output)
-        if [[ -n "$target_version" && "$target_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$target_version" != "$current_nix_version" ]]; then
+        if [[ -n "$nix_target_version" && "$nix_target_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$nix_target_version" != "$current_nix_version" ]]; then
           # Compare versions
           local current_major current_minor current_patch
           local target_major target_minor target_patch
           
           IFS='.' read -r current_major current_minor current_patch <<< "$current_nix_version"
-          IFS='.' read -r target_major target_minor target_patch <<< "$target_version"
-          
+          IFS='.' read -r target_major target_minor target_patch <<< "$nix_target_version"
+            
           # Normalize patch version
           [[ -z "$current_patch" ]] && current_patch=0
           [[ -z "$target_patch" ]] && target_patch=0
@@ -1577,13 +1729,13 @@ update() {
           fi
           
           if [[ "$is_downgrade" == "true" ]]; then
-            echo "  WARNING: Nix CLI upgrade skipped: would downgrade ($current_nix_version -> $target_version)"
+            echo "  WARNING: Nix CLI upgrade skipped: would downgrade ($current_nix_version -> $nix_target_version)"
             echo "  nix upgrade-nix follows nixpkgs fallback and may be older than installed Nix"
           else
-            echo "  INFO: Nix CLI upgrade available: $current_nix_version -> $target_version"
+            echo "  INFO: Nix CLI upgrade available: $current_nix_version -> $nix_target_version"
             echo "  To upgrade: sudo -H nix upgrade-nix --profile /nix/var/nix/profiles/default"
           fi
-        elif [[ -z "$target_version" ]]; then
+        elif [[ -z "$nix_target_version" ]]; then
           echo "  Nix CLI is up to date ($current_nix_version)"
         else
           echo "  Nix CLI is up to date ($current_nix_version)"

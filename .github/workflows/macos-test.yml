@@ -1,0 +1,110 @@
+name: macOS Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+permissions:
+  contents: read
+
+jobs:
+  macos-test:
+    name: macOS Functionality Test
+    runs-on: macos-latest
+    env:
+      NONINTERACTIVE: "1"
+      CI: "1"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare fresh user home
+        run: |
+          fresh_home="$(mktemp -d)"
+          echo "HOME=$fresh_home" >> "$GITHUB_ENV"
+          echo "ZDOTDIR=$fresh_home" >> "$GITHUB_ENV"
+          echo "XDG_DATA_HOME=$fresh_home/.local/share" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=$fresh_home/.config" >> "$GITHUB_ENV"
+          echo "XDG_CACHE_HOME=$fresh_home/.cache" >> "$GITHUB_ENV"
+          echo "NONINTERACTIVE=1" >> "$GITHUB_ENV"
+          mkdir -p "$fresh_home/.local/share" "$fresh_home/.config" "$fresh_home/.cache"
+
+      - name: Install project (fresh macOS simulation)
+        run: |
+          echo "Testing install.sh on macOS with a clean HOME..."
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          chmod +x install.sh maintain-system.sh
+          ./install.sh
+
+      - name: Validate installation outputs
+        run: |
+          echo "Validating installed files in fresh HOME..."
+          [[ -d "$HOME/.oh-my-zsh" ]] || { echo "Missing ~/.oh-my-zsh"; exit 1; }
+          [[ -f "$HOME/.zshrc" ]] || { echo "Missing ~/.zshrc"; exit 1; }
+          [[ -f "$HOME/.zprofile" ]] || { echo "Missing ~/.zprofile"; exit 1; }
+          [[ -x "$HOME/.local/bin/maintain-system" ]] || { echo "Missing maintain-system binary"; exit 1; }
+          [[ -d "$HOME/.oh-my-zsh/custom/themes/powerlevel10k" ]] || { echo "Missing Powerlevel10k"; exit 1; }
+          [[ -d "$HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting" ]] || { echo "Missing zsh-syntax-highlighting"; exit 1; }
+          [[ -d "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions" ]] || { echo "Missing zsh-autosuggestions"; exit 1; }
+
+      - name: Validate shell config content
+        run: |
+          echo "Validating shell config content..."
+          cmp -s zsh.sh "$HOME/.zshrc" || { echo "zsh.sh was not installed to ~/.zshrc as expected"; exit 1; }
+          grep -q "FINAL PATH CLEANUP (FOR .ZPROFILE)" "$HOME/.zprofile" || { echo "Missing PATH cleanup block in ~/.zprofile"; exit 1; }
+          grep -q "maintain_system_bin" "$HOME/.zshrc" || { echo "Missing maintain_system_bin in ~/.zshrc"; exit 1; }
+          grep -q "alias update=" "$HOME/.zshrc" || { echo "Missing update alias in ~/.zshrc"; exit 1; }
+          grep -q "powerlevel10k/powerlevel10k" "$HOME/.zshrc" || { echo "Missing Powerlevel10k theme in ~/.zshrc"; exit 1; }
+          grep -q "oh-my-zsh.sh" "$HOME/.zshrc" || { echo "Missing Oh My Zsh source line in ~/.zshrc"; exit 1; }
+
+      - name: Validate PATH and tools in login shell
+        run: |
+          echo "Validating PATH and tools via login shell..."
+          zsh -lc 'command -v maintain-system >/dev/null' || { echo "maintain-system not in PATH"; exit 1; }
+          zsh -lc 'command -v git >/dev/null' || { echo "git not available in login shell"; exit 1; }
+          zsh -lc 'command -v brew >/dev/null' || { echo "Homebrew not available in login shell"; exit 1; }
+          zsh -lc 'command -v fzf >/dev/null' || { echo "fzf not available in login shell"; exit 1; }
+          zsh -lc 'alias update' | grep -q "$HOME/.local/bin/maintain-system" || { echo "update alias not pointing to maintain-system"; exit 1; }
+          zsh -lc 'case ":$PATH:" in *":$HOME/.local/bin:"*) exit 0 ;; *) exit 1 ;; esac' || { echo "PATH missing ~/.local/bin"; exit 1; }
+          zsh -lc 'prefix=$(brew --prefix 2>/dev/null || true); if [[ -n "$prefix" ]]; then case "$PATH" in "$prefix/bin:"*) exit 0 ;; *) exit 1 ;; esac; fi' || { echo "Homebrew bin not first in PATH"; exit 1; }
+
+      - name: Run maintain-system via login shell
+        run: |
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          echo "Validating aliases in login shell..."
+          zsh -lc 'type update >/dev/null'
+          zsh -lc 'type verify >/dev/null'
+          zsh -lc 'type versions >/dev/null'
+          echo "Running verify..."
+          zsh -lc 'verify' 2>&1 | head -20
+          echo ""
+          echo "Running versions..."
+          zsh -lc 'versions' 2>&1 | head -20
+          echo ""
+          echo "Running update..."
+          python3 - <<'PY'
+import subprocess
+import sys
+
+cmd = ["zsh", "-lc", "update"]
+try:
+    result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=1800)
+    output = result.stdout
+except subprocess.TimeoutExpired:
+    print("Update timed out after 1800s")
+    sys.exit(124)
+
+lines = output.splitlines()
+print("\n".join(lines[-200:]))
+if "Update finished" not in output:
+    print("Update did not report completion")
+    sys.exit(1)
+PY
+
+      - name: Test zsh.sh syntax
+        run: |
+          echo "Testing zsh.sh syntax..."
+          chmod +x zsh.sh
+          zsh -n zsh.sh && echo "✅ zsh.sh syntax is valid" || exit 1
