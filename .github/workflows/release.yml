@@ -1,6 +1,10 @@
 name: Release
 
 on:
+  workflow_run:
+    workflows: ["macOS Test"]
+    types:
+      - completed
   release:
     types: [created]
   workflow_dispatch:
@@ -17,19 +21,51 @@ jobs:
   create-release:
     name: Create Release Package
     runs-on: ubuntu-latest
+    # Only run if macOS Test workflow succeeded AND there's a tag (for workflow_run trigger)
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'release' ||
+      github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Check if tag exists (for workflow_run)
+        id: check_tag
+        if: github.event_name == 'workflow_run'
+        run: |
+          # Checkout the commit that triggered the workflow
+          git fetch --tags
+          COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
+          git checkout "$COMMIT_SHA"
+          
+          # Check if this commit has a tag
+          if git describe --tags --exact-match "$COMMIT_SHA" 2>/dev/null; then
+            TAG=$(git describe --tags --exact-match "$COMMIT_SHA")
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "has_tag=true" >> $GITHUB_OUTPUT
+            echo "Found tag: $TAG"
+          else
+            echo "has_tag=false" >> $GITHUB_OUTPUT
+            echo "No tag found for commit $COMMIT_SHA - skipping release"
+          fi
+
       - name: Get version
         id: version
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
-          else
+          elif [ "${{ github.event_name }}" == "release" ]; then
             VERSION="${GITHUB_REF#refs/tags/}"
+          elif [ "${{ github.event_name }}" == "workflow_run" ]; then
+            if [ "${{ steps.check_tag.outputs.has_tag }}" == "true" ]; then
+              VERSION="${{ steps.check_tag.outputs.tag }}"
+            else
+              echo "No tag found - exiting"
+              exit 1
+            fi
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Release version: $VERSION"

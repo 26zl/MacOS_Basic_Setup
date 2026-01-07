@@ -150,7 +150,34 @@ Customize with environment variables:
 
 ## Terminal
 
-Includes: Oh My Zsh, Powerlevel10k, syntax highlighting, autosuggestions, FZF. Optional Ghostty config included - see `Ghostty config.txt`.
+Includes: Oh My Zsh, Powerlevel10k, syntax highlighting, autosuggestions, FZF.
+
+### Ghostty Terminal Setup
+
+To get the exact same terminal design as shown in the preview:
+
+1. **Install Ghostty** (if not already installed):
+   ```bash
+   brew install --cask ghostty
+   ```
+
+2. **Copy the configuration file**:
+   ```bash
+   cp "Ghostty config.txt" ~/.config/ghostty/config
+   ```
+
+3. **Set up the background image**:
+   - Place the background image from `background/image.png` in a location of your choice (e.g., `~/Pictures/terminal-bg.png`)
+   - Update the `background-image` path in `~/.config/ghostty/config` to point to your image location
+   - Or simply copy the entire `background/` directory and reference it from the config
+
+The Ghostty config includes:
+- Dark theme with custom colors
+- Background image support
+- Optimized font settings
+- Custom window behavior
+
+See `Ghostty config.txt` for the full configuration.
 
 ## Security
 
