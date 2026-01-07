@@ -186,8 +186,6 @@ setup_maintain_system() {
       local display_path="$local_bin/maintain-system"
       [[ "$display_path" == *"/../"* ]] && display_path="$(cd "$local_bin" && pwd)/maintain-system"
       echo "${GREEN}✅ maintain-system script installed to $display_path${NC}"
-      echo "  Resulting maintain-system location: $local_bin/maintain-system"
-      ls -la "$local_bin/maintain-system" || true
     else
       echo "${RED}❌ Error: maintain-system was copied but is not executable${NC}"
       exit 1
@@ -251,7 +249,7 @@ setup_zprofile_path_cleanup() {
 # This must be at the very end of .zprofile to fix PATH order after all tools have loaded
 # Ensures Homebrew paths come before /usr/bin and ~/.local/bin is included
 # Managed by macOS Development Environment Setup
-_detect_brew_prefix_zprofile() {
+_detect_brew_prefix() {
   if [[ -d /opt/homebrew ]]; then
     echo /opt/homebrew
   elif [[ -d /usr/local/Homebrew ]]; then
@@ -265,7 +263,7 @@ _detect_brew_prefix_zprofile() {
 local_bin="${XDG_DATA_HOME:-$HOME/.local/share}/../bin"
 [[ -d "$local_bin" ]] || local_bin="$HOME/.local/bin"
 
-HOMEBREW_PREFIX="$(_detect_brew_prefix_zprofile)"
+HOMEBREW_PREFIX="$(_detect_brew_prefix)"
 if [[ -n "$HOMEBREW_PREFIX" ]]; then
   # Remove Homebrew paths from current PATH temporarily
   # Suppress all output to avoid Powerlevel10k instant prompt warnings

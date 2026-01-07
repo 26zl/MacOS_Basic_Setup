@@ -72,6 +72,81 @@ _is_disabled() {
   return 1
 }
 
+# Check if Python is system Python (should not be modified)
+_is_system_python() {
+  local python_path="$1"
+  [[ -z "$python_path" ]] && return 1
+  
+  # Check if it's in system directories
+  case "$python_path" in
+    /usr/bin/python*|/System/Library/Frameworks/Python.framework/*)
+      return 0
+      ;;
+  esac
+  
+  # Check if it's a symlink pointing to system Python
+  if [[ -L "$python_path" ]]; then
+    local resolved=$(readlink -f "$python_path" 2>/dev/null || readlink "$python_path" 2>/dev/null || echo "")
+    case "$resolved" in
+      /usr/bin/python*|/System/Library/Frameworks/Python.framework/*)
+        return 0
+        ;;
+    esac
+  fi
+  
+  return 1
+}
+
+_is_homebrew_python() {
+  local python_path="$1"
+  [[ -z "$python_path" ]] && return 1
+
+  local brew_prefix="$(_detect_brew_prefix)"
+  [[ -z "$brew_prefix" ]] && return 1
+
+  case "$python_path" in
+    "$brew_prefix"/*)
+      return 0
+      ;;
+  esac
+
+  if [[ -L "$python_path" ]]; then
+    local resolved=$(readlink -f "$python_path" 2>/dev/null || readlink "$python_path" 2>/dev/null || echo "")
+    case "$resolved" in
+      "$brew_prefix"/*)
+        return 0
+        ;;
+    esac
+  fi
+
+  return 1
+}
+
+# Check if Ruby is system Ruby (should not be modified)
+_is_system_ruby() {
+  local ruby_path="$1"
+  [[ -z "$ruby_path" ]] && return 1
+  
+  # Check if it's in system directories
+  case "$ruby_path" in
+    /usr/bin/ruby|/System/Library/Frameworks/Ruby.framework/*)
+      return 0
+      ;;
+  esac
+  
+  # Check if it's a symlink pointing to system Ruby
+  if [[ -L "$ruby_path" ]]; then
+    local resolved=$(readlink -f "$ruby_path" 2>/dev/null || readlink "$ruby_path" 2>/dev/null || echo "")
+    case "$resolved" in
+      /usr/bin/ruby|/System/Library/Frameworks/Ruby.framework/*)
+        return 0
+        ;;
+    esac
+  fi
+  
+  return 1
+}
+
 # ================================ RUBY GEM COMPATIBILITY ===================
 
 _fix_all_ruby_gems() {
@@ -559,144 +634,98 @@ _go_update_toolchain() {
   echo "  Current: Go $current_version"
   
   local go_errors=()
+
+  # Clean module cache to avoid stale/corrupt downloads
+  if ! go clean -modcache 2>/dev/null; then
+    echo "  WARNING: Failed to clean Go module cache (continuing)"
+  fi
   
-  # Update Go itself - try multiple methods
-  # Method 1: If installed via Homebrew
+  # Update Go itself - Homebrew only (no auto-install via go tool)
+  local brew_go=false
+  local go_updated=false
+  local go_update_available=false
   if command -v brew >/dev/null 2>&1 && brew list go >/dev/null 2>&1; then
+    brew_go=true
     echo "  Updating Go via Homebrew..."
+    local old_version="$current_version"
     if brew upgrade go 2>/dev/null; then
       local new_version=$(go version | awk '{print $3}' | sed 's/go//')
-      # Get GOROOT from updated Go
-      local new_goroot=$(go env GOROOT 2>/dev/null || echo "")
-      if [[ -n "$new_goroot" && -d "$new_goroot" ]]; then
-        # Make it permanent
-        _setup_go_permanent "$new_goroot"
+      # Check if version actually changed
+      if [[ "$new_version" != "$old_version" ]]; then
+        go_updated=true
+        # Get GOROOT from updated Go
+        local new_goroot=$(go env GOROOT 2>/dev/null || echo "")
+        if [[ -n "$new_goroot" && -d "$new_goroot" ]]; then
+          # Make it permanent
+          _setup_go_permanent "$new_goroot"
+        fi
+        current_version="$new_version"
+        echo "  SUCCESS: Updated to Go $new_version (permanent configuration added to .zprofile)"
+      else
+        echo "  INFO: Go is already up to date ($current_version)"
       fi
-      echo "  SUCCESS: Updated to Go $new_version (permanent configuration added to .zprofile)"
     else
       go_errors+=("homebrew_upgrade")
       echo "  WARNING: Homebrew upgrade failed"
     fi
   else
-    # Method 2: Use go install to download newest toolchain (make permanent)
-    echo "  Checking for Go updates via go install..."
-    # Check if Go module proxy is accessible
-    if ! go env GOPROXY >/dev/null 2>&1; then
-      echo "  INFO: Go module proxy not configured, skipping go install method"
-      echo "  INFO: Go is already installed ($current_version)"
-    elif go install golang.org/dl/go@latest 2>/dev/null; then
-      # Check latest available version
-      local latest_go=$(go list -m -f '{{.Version}}' golang.org/dl/go@latest 2>/dev/null || echo "")
-      if [[ -n "$latest_go" ]]; then
-        # Extract version number
-        local latest_version="${latest_go#go}"
-        local current_version_num="${current_version#go}"
-        
-        # Check if latest differs from current
-        if [[ "$latest_version" != "$current_version_num" ]]; then
-          echo "  Latest available: Go $latest_version (current: $current_version_num)"
-          
-          # Install the specific version downloader
-          local go_downloader="go${latest_version}"
-          echo "  Installing Go $latest_version downloader..."
-          if go install "golang.org/dl/${go_downloader}@latest" 2>/dev/null; then
-            # Download the Go version
-            echo "  Downloading Go $latest_version..."
-            if "$go_downloader" download 2>/dev/null; then
-              # The downloaded version is now available via $go_downloader command
-              # To use it as default, we need to set GOROOT or use it directly
-              # First, verify the download worked
-              local downloaded_version=$("$go_downloader" version 2>/dev/null | awk '{print $3}' | sed 's/go//' || echo "")
-              if [[ -n "$downloaded_version" ]]; then
-                # Get GOROOT from the downloaded version
-                local new_goroot=$("$go_downloader" env GOROOT 2>/dev/null || echo "")
-                if [[ -n "$new_goroot" && -d "$new_goroot" ]]; then
-                  # Set GOROOT to the new version (this will make 'go' use the new version)
-                  export GOROOT="$new_goroot"
-                  export PATH="$new_goroot/bin:$PATH"
-                  hash -r 2>/dev/null || true
-                  
-                  # Make it permanent by updating .zprofile
-                  _setup_go_permanent "$new_goroot"
-                  
-                  # Verify the new version is active
-                  local new_version=$(go version 2>/dev/null | awk '{print $3}' | sed 's/go//' || echo "")
-                if [[ "$new_version" == "$downloaded_version" ]]; then
-                  echo "  SUCCESS: Updated to Go $new_version (permanent configuration added to .zprofile)"
-                else
-                    echo "  WARNING: Go version downloaded but verification failed (expected: $downloaded_version, got: $new_version)"
-                    go_errors+=("version_mismatch")
-                  fi
-                else
-                  echo "  WARNING: Failed to get GOROOT for Go $latest_version"
-                  go_errors+=("goroot_missing")
-                fi
-              else
-                echo "  WARNING: Failed to verify downloaded Go $latest_version"
-                go_errors+=("version_verify")
-              fi
-            else
-              echo "  WARNING: Failed to download Go $latest_version"
-              go_errors+=("version_download")
-            fi
-          else
-            echo "  WARNING: Failed to install Go $latest_version downloader"
-            go_errors+=("downloader_install")
-          fi
+    echo "  INFO: Go is not installed via Homebrew"
+  fi
+
+  # Check latest Go release (info only)
+  echo "  Checking latest Go release..."
+  local latest_version=""
+  if command -v curl >/dev/null 2>&1; then
+    local json_response=""
+    json_response="$(curl -s --max-time 5 'https://go.dev/dl/?mode=json' 2>/dev/null || echo "")"
+    if [[ -n "$json_response" && "$json_response" != "FAILED" ]]; then
+      # Parse JSON to find latest stable version
+      # The JSON format is: [{"version":"go1.24.5","stable":true,...},...]
+      # Use jq if available (most reliable), otherwise use python3, then grep as last resort
+      if command -v jq >/dev/null 2>&1; then
+        latest_version="$(echo "$json_response" | jq -r '.[] | select(.stable == true) | .version' 2>/dev/null | head -1 | sed 's/go//' || echo "")"
+      elif command -v python3 >/dev/null 2>&1; then
+        latest_version="$(echo "$json_response" | python3 -c "import sys, json; data = json.load(sys.stdin); stable = [x for x in data if x.get('stable')]; print(stable[0]['version'].replace('go', '') if stable else '')" 2>/dev/null || echo "")"
+      else
+        # Fallback: grep for first stable version (less reliable but works without dependencies)
+        latest_version="$(echo "$json_response" | grep -oE '"version":"go[0-9]+\.[0-9]+(\.[0-9]+)?".*"stable":true' | head -1 | grep -oE 'go[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | sed 's/go//' || echo "")"
+      fi
+      
+      if [[ -n "$latest_version" && "$latest_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+        if [[ "$latest_version" != "$current_version" ]]; then
+          go_update_available=true
+          echo "  INFO: Latest Go release: $latest_version (current: $current_version)"
         else
-          echo "  Go is already at latest version ($current_version_num)"
+          echo "  INFO: Go is up to date ($current_version)"
         fi
       else
-        echo "  WARNING: Could not determine latest Go version"
-        go_errors+=("version_check")
+        echo "  INFO: Could not determine latest Go version from go.dev (parsing failed)"
       fi
     else
-      echo "  WARNING: Failed to install Go downloader tool"
-      go_errors+=("downloader_base")
-    fi
-  fi
-  
-  # Update Go modules using Go's native tools (go mod, go get)
-  echo "  Updating Go modules and dependencies..."
-  local go_project_updates="${MAINTAIN_SYSTEM_GO_PROJECTS:-0}"
-  
-  # Update modules in current directory if go.mod exists
-  if [[ -f "go.mod" ]]; then
-    if [[ "$go_project_updates" == "1" ]]; then
-      echo "    Updating dependencies in go.mod..."
-      # Use go get -u to update all dependencies
-      if go get -u ./...; then
-        echo "    Dependencies updated"
-      else
-        go_errors+=("go_get")
-        echo "    WARNING: go get -u failed"
-      fi
-      
-      # Run go mod tidy to clean up go.mod and go.sum
-      echo "    Running go mod tidy..."
-      if go mod tidy; then
-        echo "    go.mod cleaned up"
-      else
-        go_errors+=("mod_tidy")
-        echo "    WARNING: go mod tidy failed"
-      fi
-      
-      # Run go mod download to ensure all dependencies are downloaded
-      echo "    Downloading module dependencies..."
-      if go mod download; then
-        echo "    Modules downloaded"
-      else
-        go_errors+=("mod_download")
-        echo "    WARNING: go mod download failed"
-      fi
-    else
-      echo "    INFO: go.mod found, but project updates are disabled"
-      echo "    INFO: Set MAINTAIN_SYSTEM_GO_PROJECTS=1 to update project dependencies"
+      echo "  INFO: Could not check for updates (network issue or invalid response)"
     fi
   else
-    echo "    INFO: No go.mod found in current directory"
-    echo "    INFO: Go modules are project-specific - run 'update' in your Go project directories"
+    echo "  INFO: curl not available; skipping go.dev version check"
   fi
+
+  if [[ "$brew_go" == "true" ]]; then
+    if [[ "$go_updated" == "true" ]]; then
+      echo "  INFO: Homebrew manages Go and will handle updates automatically"
+    else
+      echo "  INFO: Go is up to date via Homebrew ($current_version)"
+    fi
+  else
+    if [[ -n "$latest_version" && "$latest_version" != "$current_version" ]]; then
+      go_update_available=true
+      echo "  INFO: Update available: $latest_version (current: $current_version)"
+    fi
+    echo "  INFO: Recommended: Install Go via Homebrew for automatic updates: brew install go"
+    echo "  INFO: Manual download: https://go.dev/dl/"
+  fi
+  
+  # Go modules are project-specific and should be updated in project directories
+  echo "  Updating Go modules and dependencies..."
+  echo "    INFO: Go modules are project-specific - run 'update' in your Go project directories"
   
   # Update all globally installed Go tools
   echo "  Checking for globally installed Go tools..."
@@ -793,11 +822,28 @@ _go_update_toolchain() {
     fi
   fi
   
+  # Report summary
+  local go_summary_parts=()
+  if [[ "$go_updated" == "true" ]]; then
+    go_summary_parts+=("Go toolchain updated")
+  fi
+  if [[ -n "${tools_updated:-}" ]] && [[ $tools_updated -gt 0 ]]; then
+    go_summary_parts+=("$tools_updated Go tool(s) updated")
+  fi
+  if [[ ${#go_summary_parts[@]} -gt 0 ]]; then
+    echo "  SUCCESS: ${go_summary_parts[*]}"
+  elif [[ "$go_update_available" == "true" ]]; then
+    echo "  INFO: Go update available (manual install required)"
+  elif [[ -n "${tools_found:-}" ]] && [[ $tools_found -gt 0 ]] && [[ -n "${tools_updated:-}" ]] && [[ $tools_updated -eq 0 ]]; then
+    echo "  INFO: Go toolchain and tools are up to date"
+  else
+    echo "  INFO: Go toolchain checked (no updates needed)"
+  fi
+  
   if [[ ${#go_errors[@]} -gt 0 ]]; then
     echo "  Go issues: ${go_errors[*]}"
     return 1
   else
-    echo "  SUCCESS: Go toolchain and packages updated"
     return 0
   fi
 }
@@ -853,8 +899,6 @@ update() {
     echo "ERROR: This script requires macOS"
     return 1
   fi
-  
-  local HOMEBREW_PREFIX="$(_detect_brew_prefix)"
 
   # Auto-install Homebrew if missing
   if ! command -v brew >/dev/null 2>&1; then
@@ -878,15 +922,36 @@ update() {
     echo "[Homebrew] update/upgrade/cleanup..."
     local brew_errors=()
     
-    if brew update 2>/dev/null; then
-      echo "  Homebrew updated successfully"
+    local brew_update_output=""
+    brew_update_output="$(brew update 2>&1 || echo "FAILED")"
+    if [[ "$brew_update_output" != *"FAILED"* ]]; then
+      # Check if output indicates an actual update occurred
+      # brew update shows "Updated X tap(s)" or "==> Updated Formulae" when something changed
+      # "Already up-to-date." means no update occurred
+      if echo "$brew_update_output" | grep -qiE "(Already up-to-date|Already updated|No changes)"; then
+        echo "  INFO: Homebrew is already up to date"
+      elif echo "$brew_update_output" | grep -qiE "(Updated [0-9]+ tap|==> Updated Formulae|==> Updating)"; then
+        echo "  Homebrew updated successfully"
+      else
+        # Default to "already up to date" if output is minimal (indicates no changes)
+        echo "  INFO: Homebrew is already up to date"
+      fi
     else
       brew_errors+=("update")
       echo "  WARNING: Homebrew update failed"
     fi
     
-    if brew upgrade 2>/dev/null; then
-      echo "  Homebrew packages upgraded successfully"
+    local brew_upgrade_output=""
+    brew_upgrade_output="$(brew upgrade 2>&1 || echo "FAILED")"
+    if [[ "$brew_upgrade_output" != *"FAILED"* ]]; then
+      # Check if output indicates packages were actually upgraded
+      if echo "$brew_upgrade_output" | grep -qiE "(==> Upgrading|==> Pouring|Upgraded|changed)"; then
+        echo "  Homebrew packages upgraded successfully"
+      elif echo "$brew_upgrade_output" | grep -qiE "(Already up-to-date|Nothing to upgrade|All formulae are up to date)"; then
+        echo "  INFO: Homebrew packages are already up to date"
+      else
+        echo "  INFO: Homebrew packages checked (may already be up to date)"
+      fi
     else
       brew_errors+=("upgrade")
       echo "  WARNING: Some Homebrew packages failed to upgrade"
@@ -898,8 +963,12 @@ update() {
     if brew doctor 2>/dev/null; then
       echo "  Homebrew doctor check passed"
     else
-      brew_errors+=("doctor")
-      echo "  WARNING: brew doctor reported issues"
+      if [[ -n "${CI:-}" ]]; then
+        echo "  INFO: brew doctor reported issues (CI mode)"
+      else
+        brew_errors+=("doctor")
+        echo "  WARNING: brew doctor reported issues"
+      fi
     fi
     
     # Report summary of Homebrew issues
@@ -907,23 +976,48 @@ update() {
       echo "  Homebrew issues: ${brew_errors[*]}"
       echo "  Consider running: brew doctor for detailed diagnostics"
     fi
-  else
-    echo "[Homebrew] Not installed, skipping..."
   fi
 
   if command -v port >/dev/null 2>&1; then
     echo "[MacPorts] sudo required; you may be prompted..."
     local port_errors=()
     
-    if sudo port -v selfupdate 2>/dev/null; then
-      echo "  MacPorts updated successfully"
+    local port_output=""
+    port_output="$(sudo port -v selfupdate 2>&1 || echo "FAILED")"
+    if [[ "$port_output" != *"FAILED"* ]]; then
+      # Check if output indicates an actual update occurred
+      # MacPorts shows "Adding port" when new ports are added
+      # "Ports successfully parsed: X" where X > 0 means new ports were added
+      # "Up-to-date ports skipped" means no new ports
+      # Note: "Ports successfully parsed: 1" can be just re-parsing, not a real update
+      if echo "$port_output" | grep -qiE "Adding port"; then
+        echo "  MacPorts updated successfully"
+      elif echo "$port_output" | grep -qiE "Ports successfully parsed:[[:space:]]+[2-9]|[0-9]{2,}"; then
+        # Only consider it an update if 2+ ports were parsed (1 is often just re-parsing)
+        echo "  MacPorts updated successfully"
+      elif echo "$port_output" | grep -qiE "(already|up to date|latest version|Up-to-date ports skipped|Ports successfully parsed:[[:space:]]+0|Ports successfully parsed:[[:space:]]+1)"; then
+        echo "  INFO: MacPorts is already up to date"
+      else
+        # Default to "already up to date" if we can't determine
+        echo "  INFO: MacPorts is already up to date"
+      fi
     else
       port_errors+=("selfupdate")
       echo "  WARNING: MacPorts selfupdate failed"
     fi
     
-    if sudo port -N upgrade outdated 2>/dev/null; then
-      echo "  MacPorts packages upgraded successfully"
+    local port_upgrade_output=""
+    port_upgrade_output="$(sudo port -N upgrade outdated 2>&1 || echo "FAILED")"
+    if [[ "$port_upgrade_output" != *"FAILED"* ]]; then
+      # Check if output indicates packages were actually upgraded
+      # "Nothing to upgrade" means no packages were upgraded
+      if echo "$port_upgrade_output" | grep -qiE "(Nothing to upgrade|All ports are up to date|No packages to upgrade)"; then
+        echo "  INFO: MacPorts packages are already up to date"
+      elif echo "$port_upgrade_output" | grep -qiE "(Upgrading|Installing|Building|Activating)"; then
+        echo "  MacPorts packages upgraded successfully"
+      else
+        echo "  INFO: MacPorts packages are already up to date"
+      fi
     else
       port_errors+=("upgrade")
       echo "  WARNING: Some MacPorts packages failed to upgrade"
@@ -1034,20 +1128,71 @@ update() {
   fi
   [[ -z "$pybin" ]] && pybin="$(command -v python3 || command -v python || true)"
   if [[ -n "$pybin" ]]; then
-    echo "[Python] Upgrading pip/setuptools/wheel and global packages..."
     local python_errors=()
-    
-    # Check if Python is a symlink to Homebrew (read-only, skip pip upgrades)
     local pyenv_version_dir=""
-    if command -v pyenv >/dev/null 2>&1; then
-      local current_pyenv_version=$(pyenv version-name 2>/dev/null || echo "")
-      if [[ -n "$current_pyenv_version" && "$current_pyenv_version" != "system" ]]; then
-        pyenv_version_dir="${PYENV_ROOT:-$HOME/.pyenv}/versions/$current_pyenv_version"
-        if [[ -L "$pyenv_version_dir" ]]; then
-          echo "  INFO: Python is symlinked to Homebrew (read-only), skipping pip/setuptools/wheel upgrade"
-          echo "  INFO: Homebrew manages these packages - use 'brew upgrade python@X' to update"
+    local is_system_python=false
+    local is_homebrew_python=false
+
+    if _is_system_python "$pybin"; then
+      is_system_python=true
+    fi
+    if _is_homebrew_python "$pybin"; then
+      is_homebrew_python=true
+    fi
+
+    if [[ "$is_system_python" == true ]]; then
+      echo "[Python] Detected system Python ($pybin) - skipping pip/setuptools/wheel upgrade"
+      echo "  INFO: System Python should not be modified - use pyenv or Homebrew Python for development"
+      echo "  INFO: To upgrade system Python packages, use: sudo pip3 install --upgrade <package> (not recommended)"
+    else
+      echo "[Python] Upgrading pip/setuptools/wheel and global packages..."
+      if [[ "$is_homebrew_python" == true ]]; then
+        echo "  INFO: Homebrew Python detected - skipping pip/setuptools/wheel upgrades"
+        echo "  INFO: Homebrew manages pip/setuptools/wheel - use 'brew upgrade python@X' to update"
+        echo "  INFO: User-installed pip packages will still be upgraded below"
+      else
+        # Check if Python is a symlink to Homebrew (read-only, skip pip upgrades)
+        if command -v pyenv >/dev/null 2>&1; then
+          local current_pyenv_version=$(pyenv version-name 2>/dev/null || echo "")
+          if [[ -n "$current_pyenv_version" && "$current_pyenv_version" != "system" ]]; then
+            pyenv_version_dir="${PYENV_ROOT:-$HOME/.pyenv}/versions/$current_pyenv_version"
+            if [[ -L "$pyenv_version_dir" ]]; then
+              echo "  INFO: Python is symlinked to Homebrew (read-only), skipping pip/setuptools/wheel upgrade"
+              echo "  INFO: Homebrew manages these packages - use 'brew upgrade python@X' to update"
+            else
+              # Regular pyenv installation - can upgrade pip
+              if "$pybin" -m ensurepip --upgrade 2>/dev/null; then
+                echo "  ensurepip upgraded successfully"
+              else
+                python_errors+=("ensurepip")
+                echo "  WARNING: ensurepip upgrade failed"
+              fi
+              
+              if "$pybin" -m pip install --upgrade pip setuptools wheel 2>/dev/null; then
+                echo "  pip/setuptools/wheel upgraded successfully"
+              else
+                python_errors+=("pip_upgrade")
+                echo "  WARNING: pip/setuptools/wheel upgrade failed"
+              fi
+            fi
+          else
+            # pyenv set to "system" - not system Python (already checked above), might be Homebrew or other
+            if "$pybin" -m ensurepip --upgrade 2>/dev/null; then
+              echo "  ensurepip upgraded successfully"
+            else
+              python_errors+=("ensurepip")
+              echo "  WARNING: ensurepip upgrade failed"
+            fi
+            
+            if "$pybin" -m pip install --upgrade pip setuptools wheel 2>/dev/null; then
+              echo "  pip/setuptools/wheel upgraded successfully"
+            else
+              python_errors+=("pip_upgrade")
+              echo "  WARNING: pip/setuptools/wheel upgrade failed"
+            fi
+          fi
         else
-          # Regular pyenv installation - can upgrade pip
+          # No pyenv - not system Python (already checked above), might be Homebrew or other
           if "$pybin" -m ensurepip --upgrade 2>/dev/null; then
             echo "  ensurepip upgraded successfully"
           else
@@ -1062,36 +1207,6 @@ update() {
             echo "  WARNING: pip/setuptools/wheel upgrade failed"
           fi
         fi
-      else
-        # System Python or no pyenv - try to upgrade
-        if "$pybin" -m ensurepip --upgrade 2>/dev/null; then
-          echo "  ensurepip upgraded successfully"
-        else
-          python_errors+=("ensurepip")
-          echo "  WARNING: ensurepip upgrade failed"
-        fi
-        
-        if "$pybin" -m pip install --upgrade pip setuptools wheel 2>/dev/null; then
-          echo "  pip/setuptools/wheel upgraded successfully"
-        else
-          python_errors+=("pip_upgrade")
-          echo "  WARNING: pip/setuptools/wheel upgrade failed"
-        fi
-      fi
-    else
-      # No pyenv - try to upgrade
-      if "$pybin" -m ensurepip --upgrade 2>/dev/null; then
-        echo "  ensurepip upgraded successfully"
-      else
-        python_errors+=("ensurepip")
-        echo "  WARNING: ensurepip upgrade failed"
-      fi
-      
-      if "$pybin" -m pip install --upgrade pip setuptools wheel 2>/dev/null; then
-        echo "  pip/setuptools/wheel upgraded successfully"
-      else
-        python_errors+=("pip_upgrade")
-        echo "  WARNING: pip/setuptools/wheel upgrade failed"
       fi
     fi
     
@@ -1160,7 +1275,19 @@ update() {
       local pipx_exit_code=$?
       
       if [[ $pipx_exit_code -eq 0 ]]; then
-        echo "  pipx packages upgraded successfully"
+        # Check if output indicates packages were actually upgraded
+        # pipx upgrade-all shows "No packages upgraded" when nothing changed
+        # or shows package names when upgrading
+        if echo "$pipx_output" | grep -qiE "(No packages upgraded|No packages to upgrade|already|up to date|nothing to do|all packages are)"; then
+          echo "  INFO: pipx packages are already up to date"
+        elif echo "$pipx_output" | grep -qiE "(upgraded [a-z]|installed [a-z]|upgrading [a-z]|package.*upgraded|package.*installed|upgraded successfully)"; then
+          echo "  pipx packages upgraded successfully"
+        elif [[ -z "$pipx_output" ]] || [[ ${#pipx_output} -lt 20 ]]; then
+          # Empty or very short output usually means nothing to upgrade
+          echo "  INFO: pipx packages are already up to date"
+        else
+          echo "  INFO: pipx packages checked (may already be up to date)"
+        fi
       else
         python_errors+=("pipx")
         echo "  WARNING: pipx upgrade failed (exit code: $pipx_exit_code)"
@@ -1177,10 +1304,23 @@ update() {
         
         # Try force upgrade as fallback
         echo "  ATTEMPTING: Force upgrade as fallback..."
-        if pipx upgrade-all --force 2>/dev/null; then
-          echo "  SUCCESS: pipx packages upgraded with force"
-          # Remove pipx from errors if force upgrade succeeded
-          python_errors=("${python_errors[@]/pipx}")
+        local pipx_force_output
+        pipx_force_output="$(pipx upgrade-all --force 2>&1)"
+        if [[ $? -eq 0 ]]; then
+          # Check if force upgrade actually updated anything
+          if echo "$pipx_force_output" | grep -qiE "(upgraded|installed|updating|changed|new version)"; then
+            echo "  SUCCESS: pipx packages upgraded with force"
+            # Remove pipx from errors if force upgrade succeeded
+            local new_errors=()
+            for err in "${python_errors[@]}"; do
+              [[ "$err" != "pipx" ]] && new_errors+=("$err")
+            done
+            python_errors=("${new_errors[@]}")
+          elif echo "$pipx_force_output" | grep -qiE "(No packages to upgrade|already|up to date|nothing to do)"; then
+            echo "  INFO: pipx packages are already up to date (force check)"
+          else
+            echo "  INFO: pipx packages checked with force (may already be up to date)"
+          fi
         else
           echo "  WARNING: Force upgrade also failed"
         fi
@@ -1193,16 +1333,34 @@ update() {
       local conda_errors=()
       
       # Update conda itself first
-      if conda update -n base -c defaults conda -y 2>/dev/null; then
-        echo "  conda updated successfully"
+      local conda_update_output=""
+      conda_update_output="$(conda update -n base -c defaults conda -y 2>&1 || echo "FAILED")"
+      if [[ "$conda_update_output" != *"FAILED"* ]]; then
+        # Check if output indicates an actual update occurred
+        if echo "$conda_update_output" | grep -qiE "(downloading|installing|updating|changed|upgraded)"; then
+          echo "  conda updated successfully"
+        elif echo "$conda_update_output" | grep -qiE "(already|up to date|All requested packages already installed)"; then
+          echo "  INFO: conda is already up to date"
+        else
+          echo "  INFO: conda checked (may already be up to date)"
+        fi
       else
         conda_errors+=("conda_update")
         echo "  WARNING: conda update failed"
       fi
       
       # Update all packages in base environment
-      if conda update --all -y 2>/dev/null; then
-        echo "  conda packages updated successfully"
+      local conda_packages_output=""
+      conda_packages_output="$(conda update --all -y 2>&1 || echo "FAILED")"
+      if [[ "$conda_packages_output" != *"FAILED"* ]]; then
+        # Check if output indicates packages were actually updated
+        if echo "$conda_packages_output" | grep -qiE "(downloading|installing|updating|changed|upgraded|will be)"; then
+          echo "  conda packages updated successfully"
+        elif echo "$conda_packages_output" | grep -qiE "(already|up to date|All requested packages already installed)"; then
+          echo "  INFO: conda packages are already up to date"
+        else
+          echo "  INFO: conda packages checked (may already be up to date)"
+        fi
       else
         conda_errors+=("conda_packages")
         echo "  WARNING: Some conda packages failed to update"
@@ -1247,16 +1405,34 @@ update() {
           local conda_errors=()
           
           # Update conda itself first
-          if conda update -n base -c defaults conda -y 2>/dev/null; then
-            echo "  conda updated successfully"
+          local conda_update_output=""
+          conda_update_output="$(conda update -n base -c defaults conda -y 2>&1 || echo "FAILED")"
+          if [[ "$conda_update_output" != *"FAILED"* ]]; then
+            # Check if output indicates an actual update occurred
+            if echo "$conda_update_output" | grep -qiE "(downloading|installing|updating|changed|upgraded)"; then
+              echo "  conda updated successfully"
+            elif echo "$conda_update_output" | grep -qiE "(already|up to date|All requested packages already installed)"; then
+              echo "  INFO: conda is already up to date"
+            else
+              echo "  INFO: conda checked (may already be up to date)"
+            fi
           else
             conda_errors+=("conda_update")
             echo "  WARNING: conda update failed"
           fi
           
           # Update all packages in base environment
-          if conda update --all -y 2>/dev/null; then
-            echo "  conda packages updated successfully"
+          local conda_packages_output=""
+          conda_packages_output="$(conda update --all -y 2>&1 || echo "FAILED")"
+          if [[ "$conda_packages_output" != *"FAILED"* ]]; then
+            # Check if output indicates packages were actually updated
+            if echo "$conda_packages_output" | grep -qiE "(downloading|installing|updating|changed|upgraded|will be)"; then
+              echo "  conda packages updated successfully"
+            elif echo "$conda_packages_output" | grep -qiE "(already|up to date|All requested packages already installed)"; then
+              echo "  INFO: conda packages are already up to date"
+            else
+              echo "  INFO: conda packages checked (may already be up to date)"
+            fi
           else
             conda_errors+=("conda_packages")
             echo "  WARNING: Some conda packages failed to update"
@@ -1273,8 +1449,12 @@ update() {
       fi
     fi
     
-    # Upgrade global packages with better error handling (skip if symlink to Homebrew)
-    if [[ -z "$pyenv_version_dir" || ! -L "$pyenv_version_dir" ]]; then
+    # Upgrade global packages with better error handling (skip if system Python only)
+    # Homebrew Python: Skip pip/setuptools/wheel (Homebrew manages), but upgrade user-installed packages
+    if [[ "$is_system_python" == true ]]; then
+      echo "  INFO: Skipping global packages upgrade (system Python)"
+    else
+      # Upgrade user-installed packages for both pyenv and Homebrew Python
       _ensure_system_path
       local outdated_packages
       outdated_packages="$("$pybin" -m pip list --outdated --format=freeze 2>/dev/null | cut -d= -f1 || true)"
@@ -1283,6 +1463,10 @@ update() {
         local failed_packages=()
         while IFS= read -r package; do
           [[ -z "$package" ]] && continue
+          # Skip pip, setuptools, wheel if Homebrew Python (Homebrew manages these)
+          if [[ "$is_homebrew_python" == true ]] && [[ "$package" == "pip" || "$package" == "setuptools" || "$package" == "wheel" ]]; then
+            continue
+          fi
           if ! "$pybin" -m pip install -U "$package" 2>/dev/null; then
             failed_packages+=("$package")
           fi
@@ -1294,9 +1478,9 @@ update() {
         else
           echo "  Global packages upgraded successfully"
         fi
+      else
+        echo "  INFO: No outdated global packages found"
       fi
-    else
-      echo "  INFO: Skipping global packages upgrade (Homebrew-managed Python)"
     fi
     
     # Report summary of Python issues
@@ -1389,8 +1573,37 @@ update() {
   fi
   
   if command -v npm >/dev/null 2>&1; then
-    npm install -g npm || true
-    npm update -g || true
+    # Update npm itself
+    local npm_install_output=""
+    npm_install_output="$(npm install -g npm 2>&1 || echo "FAILED")"
+    if [[ "$npm_install_output" != *"FAILED"* ]]; then
+      # Check if npm was actually updated
+      if echo "$npm_install_output" | grep -qiE "(added|updated|upgraded|changed [0-9]+ packages)"; then
+        # Only show success if it's not just metadata changes
+        if ! echo "$npm_install_output" | grep -qiE "(unchanged|up to date|already installed)"; then
+          echo "  npm updated successfully"
+        fi
+      fi
+    fi
+    
+    # Update global packages
+    local npm_update_output=""
+    npm_update_output="$(npm update -g 2>&1 || echo "FAILED")"
+    if [[ "$npm_update_output" != *"FAILED"* ]]; then
+      # Check if packages were actually updated
+      # "changed X packages" can be just metadata, not actual upgrades
+      # Look for actual upgrade indicators
+      if echo "$npm_update_output" | grep -qiE "(upgraded|updated [a-z]|installed [a-z]|removed [a-z])"; then
+        echo "  npm global packages updated successfully"
+      elif echo "$npm_update_output" | grep -qiE "(unchanged|up to date|already installed|no updates)"; then
+        echo "  INFO: npm global packages are already up to date"
+      elif echo "$npm_update_output" | grep -qiE "changed [0-9]+ packages"; then
+        # "changed X packages" alone usually means metadata only, not actual upgrades
+        echo "  INFO: npm global packages checked (no updates needed)"
+      else
+        echo "  INFO: npm global packages checked (may already be up to date)"
+      fi
+    fi
     
     # Refresh command hash table after Node.js package updates
     hash -r 2>/dev/null || true
@@ -1399,9 +1612,46 @@ update() {
   local chruby_target=""
   
   if command -v gem >/dev/null 2>&1; then
-    echo "[RubyGems] Updating and cleaning gems..."
-    gem update --silent --no-document || true
-    gem cleanup || true
+    # Check if this is system Ruby (should not be modified)
+    local ruby_bin=$(command -v ruby 2>/dev/null || echo "")
+    if [[ -n "$ruby_bin" ]] && _is_system_ruby "$ruby_bin"; then
+      echo "[RubyGems] Detected system Ruby ($ruby_bin) - skipping gem updates"
+      echo "  INFO: System Ruby should not be modified - use chruby, rbenv, or Homebrew Ruby for development"
+      echo "  INFO: System Ruby gems are managed by macOS and may require sudo (not recommended)"
+    else
+      echo "[RubyGems] Updating and cleaning gems..."
+      local gem_update_output=""
+      gem_update_output="$(gem update --silent --no-document 2>&1 || echo "FAILED")"
+      if [[ "$gem_update_output" != *"FAILED"* ]]; then
+        # Check if output indicates gems were actually updated
+        if echo "$gem_update_output" | grep -qiE "(updating|installing|upgraded|updated|Successfully)"; then
+          echo "  Gems updated successfully"
+        elif [[ -z "$gem_update_output" ]] || echo "$gem_update_output" | grep -qiE "(nothing|already|up to date|No updates)"; then
+          echo "  INFO: Gems are already up to date"
+        else
+          echo "  INFO: Gems checked (may already be up to date)"
+        fi
+      else
+        echo "  WARNING: gem update failed"
+      fi
+      
+      local gem_cleanup_output=""
+      gem_cleanup_output="$(gem cleanup 2>&1 || echo "FAILED")"
+      if [[ "$gem_cleanup_output" != *"FAILED"* ]]; then
+        # Check if cleanup actually removed anything
+        # gem cleanup shows "Removing" or specific gem names when it removes something
+        # "Clean up complete" alone (without "Removing") means nothing was removed
+        if echo "$gem_cleanup_output" | grep -qiE "(Removing [a-z]|Cleaning up [a-z]|removed [0-9]+|removing [0-9]+)"; then
+          echo "  Gems cleaned successfully"
+        elif echo "$gem_cleanup_output" | grep -qiE "(nothing|already|No|Clean up complete)" && ! echo "$gem_cleanup_output" | grep -qiE "(Removing|removing)"; then
+          echo "  INFO: Gems cleanup complete (nothing to clean)"
+        else
+          echo "  INFO: Gems cleanup complete"
+        fi
+      else
+        echo "  WARNING: gem cleanup failed"
+      fi
+    fi
   fi
   
   if command -v chruby >/dev/null 2>&1; then
@@ -1499,9 +1749,25 @@ update() {
     
     # Update swiftly itself
     echo "  Updating swiftly..."
-    # swiftly self-update can be interactive, redirect stdin to /dev/null after piping responses
-    if { printf "y\ny\ny\ny\ny\n"; cat /dev/null; } | swiftly self-update >/dev/null 2>&1; then
-      echo "  swiftly updated successfully"
+    local swiftly_output=""
+    swiftly_output="$({ printf "y\ny\ny\ny\ny\n"; cat /dev/null; } | swiftly self-update 2>&1 || echo "FAILED")"
+    if [[ "$swiftly_output" != *"FAILED"* ]] && [[ "$swiftly_output" != *"error"* ]] && [[ "$swiftly_output" != *"Error"* ]]; then
+      # Check if output indicates an actual update occurred
+      # swiftly self-update shows "Downloading" or "Installing" when updating
+      if echo "$swiftly_output" | grep -qiE "(downloading|installing|updated to|upgraded to|new version)"; then
+        echo "  swiftly updated successfully"
+      elif echo "$swiftly_output" | grep -qiE "(already|up to date|current|latest|unchanged|no update|already installed)"; then
+        echo "  INFO: swiftly is already up to date"
+      else
+        # If output is empty or unclear, check exit code or assume no update
+        # swiftly self-update returns 0 even when already up to date
+        # So if output is empty/minimal, likely no update occurred
+        if [[ -z "$swiftly_output" ]] || [[ ${#swiftly_output} -lt 10 ]]; then
+          echo "  INFO: swiftly is already up to date"
+        else
+          echo "  INFO: swiftly checked (may already be up to date)"
+        fi
+      fi
     else
       echo "  WARNING: swiftly self-update failed (may require manual intervention)"
     fi
@@ -1625,8 +1891,17 @@ update() {
     
     # Update rustup itself first
     echo "  Updating rustup..."
-    if rustup self update 2>/dev/null; then
-      echo "    rustup updated successfully"
+    local rustup_output=""
+    rustup_output="$(rustup self update 2>&1 || echo "FAILED")"
+    if [[ "$rustup_output" != *"FAILED"* ]]; then
+      # Check if output indicates an actual update occurred
+      if echo "$rustup_output" | grep -qiE "(updated|upgraded|installed|new version)"; then
+        echo "    rustup updated successfully"
+      elif echo "$rustup_output" | grep -qiE "(unchanged|already|up to date|current|latest)"; then
+        echo "    INFO: rustup is already up to date"
+      else
+        echo "    INFO: rustup checked (may already be up to date)"
+      fi
     else
       rust_errors+=("rustup_self")
       echo "    WARNING: rustup self update failed"
@@ -1634,8 +1909,17 @@ update() {
     
     # Update all installed toolchains
     echo "  Updating all Rust toolchains..."
-    if rustup update 2>/dev/null; then
-      echo "    Toolchains updated successfully"
+    local toolchain_output=""
+    toolchain_output="$(rustup update 2>&1 || echo "FAILED")"
+    if [[ "$toolchain_output" != *"FAILED"* ]]; then
+      # Check if output indicates an actual update occurred
+      if echo "$toolchain_output" | grep -qiE "(updated|upgraded|installed|new version)"; then
+        echo "    Toolchains updated successfully"
+      elif echo "$toolchain_output" | grep -qiE "(unchanged|already|up to date|current|latest)"; then
+        echo "    INFO: Rust toolchains are already up to date"
+      else
+        echo "    INFO: Rust toolchains checked (may already be up to date)"
+      fi
     else
       rust_errors+=("toolchains")
       echo "    WARNING: Toolchain update failed"
@@ -1671,8 +1955,17 @@ update() {
     local profile_count
     profile_count=$(nix profile list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
     if [[ "$profile_count" -gt 0 ]]; then
-      if nix profile upgrade --all 2>/dev/null; then
-        echo "  nix profile packages updated successfully"
+      local nix_profile_output=""
+      nix_profile_output="$(nix profile upgrade --all 2>&1 || echo "FAILED")"
+      if [[ "$nix_profile_output" != *"FAILED"* ]]; then
+        # Check if output indicates packages were actually updated
+        if echo "$nix_profile_output" | grep -qiE "(upgraded|installed|downloading|building|changed)"; then
+          echo "  nix profile packages updated successfully"
+        elif echo "$nix_profile_output" | grep -qiE "(unchanged|already|up to date|nothing to do)"; then
+          echo "  INFO: nix profile packages are already up to date"
+        else
+          echo "  INFO: nix profile packages checked (may already be up to date)"
+        fi
       else
         nix_errors+=("profile")
         echo "  WARNING: nix profile update failed"
@@ -1683,8 +1976,17 @@ update() {
     local env_count
     env_count=$(nix-env -q 2>/dev/null | wc -l | tr -d ' ' || echo "0")
     if [[ "$env_count" -gt 0 ]]; then
-      if nix-env -u '*' 2>/dev/null; then
-        echo "  nix-env packages updated successfully"
+      local nix_env_output=""
+      nix_env_output="$(nix-env -u '*' 2>&1 || echo "FAILED")"
+      if [[ "$nix_env_output" != *"FAILED"* ]]; then
+        # Check if output indicates packages were actually updated
+        if echo "$nix_env_output" | grep -qiE "(upgraded|installed|downloading|building|changed)"; then
+          echo "  nix-env packages updated successfully"
+        elif echo "$nix_env_output" | grep -qiE "(unchanged|already|up to date|nothing to do)"; then
+          echo "  INFO: nix-env packages are already up to date"
+        else
+          echo "  INFO: nix-env packages checked (may already be up to date)"
+        fi
       else
         nix_errors+=("nix-env")
         echo "  WARNING: nix-env update failed"
@@ -1758,8 +2060,6 @@ update() {
             echo "  INFO: Nix CLI upgrade available: $current_nix_version -> $nix_target_version"
             echo "  To upgrade: sudo -H nix upgrade-nix --profile /nix/var/nix/profiles/default"
           fi
-        elif [[ -z "$nix_target_version" ]]; then
-          echo "  Nix CLI is up to date ($current_nix_version)"
         else
           echo "  Nix CLI is up to date ($current_nix_version)"
         fi
@@ -1770,8 +2070,9 @@ update() {
       echo "  Could not determine current Nix version"
     fi
     
-    # Fix Oh My Zsh compaudit issues if present
-    if command -v compaudit >/dev/null 2>&1; then
+    # Fix Oh My Zsh compaudit issues if present (only if Oh My Zsh is loaded)
+    # Note: compaudit is an Oh My Zsh function, so it's only available if Oh My Zsh is sourced
+    if [[ -n "${ZSH:-}" ]] && [[ -f "$ZSH/oh-my-zsh.sh" ]] && command -v compaudit >/dev/null 2>&1; then
       local insecure_dirs
       insecure_dirs=$(compaudit 2>&1 || true)
       if [[ -n "$insecure_dirs" ]]; then
@@ -1845,6 +2146,32 @@ verify() {
       local latest_py="$(_pyenv_latest_installed)"
       [[ -n "$latest_py" && "$active_py" == "$latest_py" ]] && ok "pyenv" "active $active_py" || warn "pyenv" "active ${active_py:-unknown}; latest ${latest_py:-unknown}"
     fi
+    command -v pipx >/dev/null 2>&1 && ok "pipx" "$(pipx --version 2>/dev/null || echo "installed")"
+    if command -v conda >/dev/null 2>&1; then
+      ok "conda" "$(conda --version 2>/dev/null || echo "installed")"
+    else
+      # Check for miniforge/anaconda in common locations
+      local conda_paths=(
+        "$HOME/miniforge3/bin/conda"
+        "$HOME/miniforge/bin/conda"
+        "$HOME/anaconda3/bin/conda"
+        "$HOME/anaconda/bin/conda"
+        "$(brew --prefix 2>/dev/null)/Caskroom/miniforge/base/bin/conda"
+        "$(brew --prefix 2>/dev/null)/Caskroom/anaconda/base/bin/conda"
+        "/usr/local/miniforge3/bin/conda"
+        "/usr/local/anaconda3/bin/conda"
+      )
+      local conda_found=false
+      for path in "${conda_paths[@]}"; do
+        if [[ -f "$path" ]]; then
+          local conda_version="$("$path" --version 2>/dev/null || echo "installed")"
+          warn "conda" "$conda_version (not in PATH)"
+          conda_found=true
+          break
+        fi
+      done
+      [[ "$conda_found" == false ]] && warn "conda" "not in PATH"
+    fi
   else
     if command -v pyenv >/dev/null 2>&1; then
       warn "Python" "not installed (run 'update' to install)"
@@ -1882,6 +2209,7 @@ verify() {
     local active="$(rustup show active-toolchain 2>/dev/null | head -n1)"
     [[ "$active" == stable* ]] && ok "rustup" "$active" || warn "rustup" "$active"
   fi
+  command -v cargo >/dev/null 2>&1 && ok "Cargo" "$(cargo --version 2>/dev/null || echo "installed")"
 
   # Swift
   if command -v swift >/dev/null 2>&1; then
@@ -1970,7 +2298,7 @@ verify() {
   fi
 
   command -v brew >/dev/null 2>&1 && ok "Homebrew" "$(brew --version | head -n1)" || miss "Homebrew"
-  command -v port  >/dev/null 2>&1 && ok "MacPorts" "$(port version)" || warn "MacPorts" "not installed"
+  command -v port >/dev/null 2>&1 && ok "MacPorts" "$(port version)" || warn "MacPorts" "not installed"
   
   # Nix - comprehensive status check
   if command -v nix >/dev/null 2>&1; then
@@ -1986,19 +2314,7 @@ verify() {
         nix_status=" (daemon not running)"
       fi
       
-      # Check for packages
-      local profile_count
-      profile_count=$(nix profile list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
-      local env_count
-      env_count=$(nix-env -q 2>/dev/null | wc -l | tr -d ' ' || echo "0")
-      
-      if [[ "$profile_count" -gt 0 ]] || [[ "$env_count" -gt 0 ]]; then
-        local pkg_info=""
-        [[ "$profile_count" -gt 0 ]] && pkg_info="${pkg_info}profile:$profile_count "
-        [[ "$env_count" -gt 0 ]] && pkg_info="${pkg_info}env:$env_count"
-        nix_status="${nix_status} [${pkg_info}]"
-      fi
-      
+      # Note: We don't show package count in verify - only in versions
       ok "Nix" "$nix_version$nix_status"
     else
       warn "Nix" "$nix_version (installation incomplete)"
@@ -2055,15 +2371,70 @@ versions() {
 
   if command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
     echo "Python ......... $(python3 -V 2>/dev/null || python -V 2>/dev/null)"
-    command -v pip  >/dev/null 2>&1 && echo "pip ............ $(pip -V | awk '{print $2}')" || true
+    if command -v pip >/dev/null 2>&1; then
+      local pip_version="$(pip -V | awk '{print $2}')"
+      local pip_count="$(pip list 2>/dev/null | tail -n +3 | wc -l | tr -d ' ' || echo "0")"
+      echo "pip ............ $pip_version ($pip_count packages)"
+    elif command -v pip3 >/dev/null 2>&1; then
+      local pip_version="$(pip3 -V | awk '{print $2}')"
+      local pip_count="$(pip3 list 2>/dev/null | tail -n +3 | wc -l | tr -d ' ' || echo "0")"
+      echo "pip ............ $pip_version ($pip_count packages)"
+    elif python3 -m pip --version >/dev/null 2>&1; then
+      local pip_version="$(python3 -m pip --version 2>/dev/null | awk '{print $2}')"
+      local pip_count="$(python3 -m pip list 2>/dev/null | tail -n +3 | wc -l | tr -d ' ' || echo "0")"
+      echo "pip ............ $pip_version ($pip_count packages)"
+    fi
     command -v pyenv >/dev/null 2>&1 && echo "pyenv .......... $(pyenv version-name 2>/dev/null)" || true
+    if command -v pipx >/dev/null 2>&1; then
+      local pipx_version="$(pipx --version 2>/dev/null || echo "installed")"
+      local pipx_count="$(pipx list --short 2>/dev/null | grep -v '^$' | wc -l | tr -d ' ' || echo "0")"
+      echo "pipx ........... $pipx_version ($pipx_count packages)"
+    fi
+    if command -v conda >/dev/null 2>&1; then
+      local conda_version="$(conda --version 2>/dev/null || echo "installed")"
+      local conda_count="$(conda list 2>/dev/null | tail -n +4 | wc -l | tr -d ' ' || echo "0")"
+      echo "conda .......... $conda_version ($conda_count packages)"
+    else
+      # Check for miniforge/anaconda in common locations
+      local conda_paths=(
+        "$HOME/miniforge3/bin/conda"
+        "$HOME/miniforge/bin/conda"
+        "$HOME/anaconda3/bin/conda"
+        "$HOME/anaconda/bin/conda"
+        "$(brew --prefix 2>/dev/null)/Caskroom/miniforge/base/bin/conda"
+        "$(brew --prefix 2>/dev/null)/Caskroom/anaconda/base/bin/conda"
+        "/usr/local/miniforge3/bin/conda"
+        "/usr/local/anaconda3/bin/conda"
+      )
+      for path in "${conda_paths[@]}"; do
+        if [[ -f "$path" ]]; then
+          local conda_version="$("$path" --version 2>/dev/null || echo "installed")"
+          local conda_count=""
+          if "$path" list 2>/dev/null | tail -n +4 >/dev/null 2>&1; then
+            conda_count="$("$path" list 2>/dev/null | tail -n +4 | wc -l | tr -d ' ' || echo "0")"
+            if [[ "$conda_count" -gt 0 ]]; then
+              echo "conda .......... $conda_version ($conda_count packages, not in PATH)"
+            else
+              echo "conda .......... $conda_version (no packages, not in PATH)"
+            fi
+          else
+            echo "conda .......... $conda_version (not in PATH)"
+          fi
+          break
+        fi
+      done
+    fi
   else
     echo "Python ......... not installed"
   fi
 
   if command -v node >/dev/null 2>&1; then
     echo "Node.js ........ $(node -v)"
-    command -v npm >/dev/null 2>&1 && echo "npm ............ $(npm -v)" || true
+    if command -v npm >/dev/null 2>&1; then
+      local npm_version="$(npm -v)"
+      local npm_count="$(npm list -g --depth=0 2>/dev/null | tail -n +2 | wc -l | tr -d ' ' || echo "0")"
+      echo "npm ............ $npm_version ($npm_count global packages)"
+    fi
     command -v nvm >/dev/null 2>&1 && echo "nvm ............ $(nvm current 2>/dev/null)" || true
   else
     echo "Node.js ........ not installed"
@@ -2071,6 +2442,11 @@ versions() {
 
   command -v rustc >/dev/null 2>&1 && echo "Rust ........... $(rustc -V)" || echo "Rust ........... not installed"
   command -v rustup >/dev/null 2>&1 && echo "rustup ......... $(rustup show active-toolchain 2>/dev/null | head -n1)" || true
+  if command -v cargo >/dev/null 2>&1; then
+    local cargo_version="$(cargo --version 2>/dev/null || echo "installed")"
+    local cargo_count="$(cargo install --list 2>/dev/null | grep -E '^[a-z]' | wc -l | tr -d ' ' || echo "0")"
+    echo "Cargo .......... $cargo_version ($cargo_count packages)"
+  fi
   
   if command -v swift >/dev/null 2>&1; then
     local swift_version="$(swift --version 2>/dev/null | head -n1 | sed 's/.*version //' | cut -d' ' -f1 || echo "unknown")"
@@ -2153,14 +2529,43 @@ versions() {
     echo "Docker ......... not installed"
   fi
 
-  command -v brew >/dev/null 2>&1 && echo "Homebrew ....... $(brew --version | head -n1)" || echo "Homebrew ....... not installed"
-  command -v port >/dev/null 2>&1 && echo "MacPorts ....... $(port version)" || echo "MacPorts ....... not installed"
+  if command -v brew >/dev/null 2>&1; then
+    local brew_version="$(brew --version | head -n1)"
+    local brew_count="$(brew list --formula 2>/dev/null | wc -l | tr -d ' ' || echo "0")"
+    echo "Homebrew ....... $brew_version ($brew_count formulae)"
+  else
+    echo "Homebrew ....... not installed"
+  fi
+  if command -v port >/dev/null 2>&1; then
+    local port_version="$(port version)"
+    local port_count="$(port installed 2>/dev/null | grep -E '^[[:space:]]+[a-z]' | wc -l | tr -d ' ' || echo "0")"
+    echo "MacPorts ....... $port_version ($port_count ports)"
+  else
+    echo "MacPorts ....... not installed"
+  fi
   
   # Nix
   if command -v nix >/dev/null 2>&1; then
     local nix_version
     nix_version="$(nix --version 2>/dev/null | head -n1 | sed 's/nix (Nix) //' || echo "unknown")"
-    echo "Nix ............. $nix_version"
+    local profile_count
+    profile_count=$(nix profile list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    local env_count
+    env_count=$(nix-env -q 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    local total_count=$((profile_count + env_count))
+    if [[ "$total_count" -gt 0 ]]; then
+      local pkg_info=""
+      if [[ "$profile_count" -gt 0 ]] && [[ "$env_count" -gt 0 ]]; then
+        pkg_info="profile:$profile_count env:$env_count"
+      elif [[ "$profile_count" -gt 0 ]]; then
+        pkg_info="profile:$profile_count"
+      elif [[ "$env_count" -gt 0 ]]; then
+        pkg_info="env:$env_count"
+      fi
+      echo "Nix ............. $nix_version ($total_count packages: $pkg_info)"
+    else
+      echo "Nix ............. $nix_version (0 packages)"
+    fi
   else
     echo "Nix ............. not installed"
   fi
@@ -2213,7 +2618,6 @@ case "${1:-}" in
     echo "  versions - Display detailed version information for all tools"
     echo ""
     echo "Optional environment variables:"
-    echo "  MAINTAIN_SYSTEM_GO_PROJECTS=1           Update go.mod dependencies in current directory"
     echo "  MAINTAIN_SYSTEM_FIX_RUBY_GEMS=0|disabled Disable Ruby gem auto-fix"
     echo "  MAINTAIN_SYSTEM_CLEAN_PYENV=0|disabled  Disable pyenv cleanup (MAINTAIN_SYSTEM_PYENV_KEEP=...)"
     echo "  MAINTAIN_SYSTEM_CLEAN_NVM=0|disabled    Disable Node cleanup (MAINTAIN_SYSTEM_NVM_KEEP=...)"

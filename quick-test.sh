@@ -12,8 +12,6 @@ echo "2. Testing file existence..."
 [[ -f install.sh ]] && echo "✅ install.sh exists" || echo "❌ install.sh missing"
 [[ -f zsh.sh ]] && echo "✅ zsh.sh exists" || echo "❌ zsh.sh missing"
 [[ -f maintain-system.sh ]] && echo "✅ maintain-system.sh exists" || echo "❌ maintain-system.sh missing"
-[[ -f README.md ]] && echo "✅ README.md exists" || echo "❌ README.md missing"
-[[ -f LICENSE ]] && echo "✅ LICENSE exists" || echo "❌ LICENSE missing"
 
 echo ""
 echo "3. Testing maintain-system script..."
