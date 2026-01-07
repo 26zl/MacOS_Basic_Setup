@@ -2156,8 +2156,18 @@ verify() {
         "$HOME/miniforge/bin/conda"
         "$HOME/anaconda3/bin/conda"
         "$HOME/anaconda/bin/conda"
-        "$(brew --prefix 2>/dev/null)/Caskroom/miniforge/base/bin/conda"
-        "$(brew --prefix 2>/dev/null)/Caskroom/anaconda/base/bin/conda"
+      )
+      # Only add brew paths if brew is installed
+      if command -v brew >/dev/null 2>&1; then
+        local brew_prefix="$(brew --prefix 2>/dev/null || echo "")"
+        if [[ -n "$brew_prefix" ]]; then
+          conda_paths+=(
+            "$brew_prefix/Caskroom/miniforge/base/bin/conda"
+            "$brew_prefix/Caskroom/anaconda/base/bin/conda"
+          )
+        fi
+      fi
+      conda_paths+=(
         "/usr/local/miniforge3/bin/conda"
         "/usr/local/anaconda3/bin/conda"
       )
@@ -2264,12 +2274,17 @@ verify() {
   else
     # Check common MySQL installation locations
     local mysql_paths=(
-      "$(brew --prefix mysql 2>/dev/null)/bin/mysql"
-      "$(brew --prefix mariadb 2>/dev/null)/bin/mysql"
       "/usr/local/mysql/bin/mysql"
       "/opt/homebrew/opt/mysql/bin/mysql"
       "/opt/homebrew/opt/mariadb/bin/mysql"
     )
+    # Only add brew paths if brew is installed
+    if command -v brew >/dev/null 2>&1; then
+      local brew_mysql_prefix="$(brew --prefix mysql 2>/dev/null || echo "")"
+      local brew_mariadb_prefix="$(brew --prefix mariadb 2>/dev/null || echo "")"
+      [[ -n "$brew_mysql_prefix" ]] && mysql_paths+=("$brew_mysql_prefix/bin/mysql")
+      [[ -n "$brew_mariadb_prefix" ]] && mysql_paths+=("$brew_mariadb_prefix/bin/mysql")
+    fi
     
     for mysql_path in "${mysql_paths[@]}"; do
       if [[ -x "$mysql_path" ]]; then
@@ -2351,6 +2366,7 @@ verify() {
   fi
   
   echo "==> Verify done"
+  return 0
 }
 
 # ================================ VERSIONS ===================================
