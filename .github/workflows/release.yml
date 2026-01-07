@@ -21,7 +21,7 @@ jobs:
   create-release:
     name: Create Release Package
     runs-on: ubuntu-latest
-    # Only run if macOS Test workflow succeeded AND there's a tag (for workflow_run trigger)
+    # Only run if macOS Test workflow succeeded
     if: |
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       github.event_name == 'release' ||
@@ -33,43 +33,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Check if tag exists (for workflow_run)
-        id: check_tag
-        if: github.event_name == 'workflow_run'
-        run: |
-          # Fetch all tags to ensure we have them
-          git fetch --tags --force
-          
-          # Get the commit SHA that triggered the macOS Test workflow
-          COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
-          echo "Checking commit: $COMMIT_SHA"
-          
-          # Checkout the specific commit
-          git checkout "$COMMIT_SHA"
-          
-          # List all tags to debug
-          echo "Available tags:"
-          git tag -l | head -10
-          
-          # Check if this commit has a tag (try multiple methods)
-          TAG=""
-          if git describe --tags --exact-match "$COMMIT_SHA" 2>/dev/null; then
-            TAG=$(git describe --tags --exact-match "$COMMIT_SHA")
-          elif git tag --points-at "$COMMIT_SHA" | head -1; then
-            TAG=$(git tag --points-at "$COMMIT_SHA" | head -1)
-          fi
-          
-          if [ -n "$TAG" ]; then
-            echo "tag=$TAG" >> $GITHUB_OUTPUT
-            echo "has_tag=true" >> $GITHUB_OUTPUT
-            echo "Found tag: $TAG"
-          else
-            echo "has_tag=false" >> $GITHUB_OUTPUT
-            echo "No tag found for commit $COMMIT_SHA"
-            echo "Commit message: $(git log -1 --format=%s $COMMIT_SHA)"
-            echo "All tags pointing to this commit: $(git tag --points-at $COMMIT_SHA || echo 'none')"
-          fi
-
       - name: Get version
         id: version
         run: |
@@ -78,12 +41,12 @@ jobs:
           elif [ "${{ github.event_name }}" == "release" ]; then
             VERSION="${GITHUB_REF#refs/tags/}"
           elif [ "${{ github.event_name }}" == "workflow_run" ]; then
-            if [ "${{ steps.check_tag.outputs.has_tag }}" == "true" ]; then
-              VERSION="${{ steps.check_tag.outputs.tag }}"
-            else
-              echo "No tag found - exiting"
-              exit 1
-            fi
+            # Auto-generate version based on date and commit SHA
+            COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
+            SHORT_SHA="${COMMIT_SHA:0:7}"
+            DATE=$(date +%Y.%m.%d)
+            VERSION="v${DATE}-${SHORT_SHA}"
+            echo "Auto-generated version: $VERSION"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Release version: $VERSION"
