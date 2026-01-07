@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/26zl/MacOS_Basic_Setup/workflows/CI/badge.svg)](https://github.com/26zl/MacOS_Basic_Setup/actions)
 [![Security Scan](https://github.com/26zl/MacOS_Basic_Setup/workflows/Security%20Scan/badge.svg)](https://github.com/26zl/MacOS_Basic_Setup/actions)
+[![macOS Test](https://github.com/26zl/MacOS_Basic_Setup/workflows/macOS%20Test/badge.svg)](https://github.com/26zl/MacOS_Basic_Setup/actions)
 
 > **One-command setup** for a complete macOS development environment with automated tool management, security best practices, and a beautiful terminal experience.
 
@@ -78,7 +79,6 @@ Swift toolchain management via `swiftly`:
 - Updates to latest stable release by default
 - Supports development snapshots when `MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS=1` is set
 - Snapshots are marked with `[snapshot]` in `verify` and `versions` output
-- Snapshots are marked with `[snapshot]` in `verify` and `versions` output
 
 ### Prerequisites
 
@@ -147,7 +147,7 @@ macOS (Intel or Apple Silicon), Zsh, internet connection. Homebrew and Git are a
 
 Contributions welcome! Before submitting a PR: run `./quick-test.sh`, ensure ShellCheck passes, verify no secrets, test on Intel and Apple Silicon.
 
-**CI/CD**: ShellCheck, Gitleaks (secrets), Trivy (security), syntax checks. See `.github/workflows/` for details.
+**CI/CD**: ShellCheck, Gitleaks (secrets), Trivy (security), syntax checks, macOS functionality tests. See `.github/workflows/` for details.
 
 ## License
 
