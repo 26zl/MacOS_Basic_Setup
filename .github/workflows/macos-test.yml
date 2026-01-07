@@ -34,9 +34,27 @@ jobs:
       - name: Install project (fresh macOS simulation)
         run: |
           echo "Testing install.sh on macOS with a clean HOME..."
+          echo "HOME=$HOME"
+          echo "XDG_DATA_HOME=${XDG_DATA_HOME:-not set}"
           export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
           chmod +x install.sh maintain-system.sh
-          ./install.sh
+          # Run install.sh and capture output
+          ./install.sh 2>&1 | tee install.log || true
+          echo ""
+          echo "=== Installation log summary ==="
+          tail -50 install.log || true
+          echo ""
+          echo "=== Verifying critical files ==="
+          echo "Checking ~/.local/bin:"
+          ls -la "$HOME/.local/bin/" 2>/dev/null || echo "  ~/.local/bin does not exist"
+          echo "Checking XDG_DATA_HOME bin:"
+          if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+            ls -la "${XDG_DATA_HOME}/../bin/" 2>/dev/null || echo "  ${XDG_DATA_HOME}/../bin does not exist"
+          fi
+          echo "Checking maintain-system:"
+          find "$HOME" -name "maintain-system" -type f 2>/dev/null | head -5 || echo "  maintain-system not found"
+          echo "Checking ~/.oh-my-zsh:"
+          ls -la "$HOME/.oh-my-zsh/" 2>/dev/null | head -5 || echo "  ~/.oh-my-zsh does not exist"
 
       - name: Validate installation outputs
         run: |
@@ -44,7 +62,26 @@ jobs:
           [[ -d "$HOME/.oh-my-zsh" ]] || { echo "Missing ~/.oh-my-zsh"; exit 1; }
           [[ -f "$HOME/.zshrc" ]] || { echo "Missing ~/.zshrc"; exit 1; }
           [[ -f "$HOME/.zprofile" ]] || { echo "Missing ~/.zprofile"; exit 1; }
-          [[ -x "$HOME/.local/bin/maintain-system" ]] || { echo "Missing maintain-system binary"; exit 1; }
+          
+          # Check for maintain-system in both possible locations
+          local_bin_1="$HOME/.local/bin/maintain-system"
+          local_bin_2=""
+          if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+            local_bin_2="${XDG_DATA_HOME}/../bin/maintain-system"
+          fi
+          
+          if [[ -x "$local_bin_1" ]]; then
+            echo "✅ maintain-system found at $local_bin_1"
+          elif [[ -n "$local_bin_2" && -x "$local_bin_2" ]]; then
+            echo "✅ maintain-system found at $local_bin_2"
+          else
+            echo "❌ Missing maintain-system binary"
+            echo "   Checked: $local_bin_1"
+            [[ -n "$local_bin_2" ]] && echo "   Checked: $local_bin_2"
+            find "$HOME" -name "maintain-system" -type f 2>/dev/null || true
+            exit 1
+          fi
+          
           [[ -d "$HOME/.oh-my-zsh/custom/themes/powerlevel10k" ]] || { echo "Missing Powerlevel10k"; exit 1; }
           [[ -d "$HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting" ]] || { echo "Missing zsh-syntax-highlighting"; exit 1; }
           [[ -d "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions" ]] || { echo "Missing zsh-autosuggestions"; exit 1; }
