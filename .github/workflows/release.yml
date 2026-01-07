@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Create release package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PACKAGE_NAME="MacOS-Dev-Setup-${VERSION}"
+          mkdir -p "$PACKAGE_NAME"
+          
+          # Copy necessary files
+          cp install.sh "$PACKAGE_NAME/"
+          cp zsh.sh "$PACKAGE_NAME/"
+          cp maintain-system.sh "$PACKAGE_NAME/"
+          cp README.md "$PACKAGE_NAME/"
+          cp LICENSE "$PACKAGE_NAME/"
+          cp .gitignore "$PACKAGE_NAME/"
+          
+          # Copy scripts directory
+          if [ -d "scripts" ]; then
+            cp -r scripts "$PACKAGE_NAME/"
+          fi
+          
+          # Copy background directory if it exists
+          if [ -d "background" ]; then
+            cp -r background "$PACKAGE_NAME/"
+          fi
+          
+          # Copy other useful files
+          if [ -f "quick-test.sh" ]; then
+            cp quick-test.sh "$PACKAGE_NAME/"
+          fi
+          
+          if [ -f "Ghostty config.txt" ]; then
+            cp "Ghostty config.txt" "$PACKAGE_NAME/"
+          fi
+          
+          # Create zip file
+          zip -r "${PACKAGE_NAME}.zip" "$PACKAGE_NAME"
+          
+          # Create checksums
+          sha256sum "${PACKAGE_NAME}.zip" > "${PACKAGE_NAME}.zip.sha256"
+          
+          echo "package_name=${PACKAGE_NAME}" >> $GITHUB_ENV
+          echo "zip_file=${PACKAGE_NAME}.zip" >> $GITHUB_ENV
+          echo "checksum_file=${PACKAGE_NAME}.zip.sha256" >> $GITHUB_ENV
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## macOS Development Environment Setup ${{ steps.version.outputs.version }}
+            
+            ### Installation
+            1. Download and extract the zip file
+            2. Run `./install.sh` in the extracted directory
+            
+            ### Files included
+            - `install.sh` - Main installation script
+            - `zsh.sh` - Zsh configuration
+            - `maintain-system.sh` - System maintenance script
+            - `scripts/` - Additional maintenance scripts
+            - `README.md` - Documentation
+            - `LICENSE` - License file
+            
+            ### Checksums
+            ```
+            ${{ env.checksum_file }}
+            ```
+          files: |
+            ${{ env.zip_file }}
+            ${{ env.checksum_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: |
+            ${{ env.zip_file }}
+            ${{ env.checksum_file }}
