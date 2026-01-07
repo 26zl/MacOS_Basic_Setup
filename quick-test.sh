@@ -21,7 +21,7 @@ get_maintain_system_path() {
   local local_bin="${XDG_DATA_HOME:-$HOME/.local/share}/../bin"
   [[ -d "$local_bin" ]] || local_bin="$HOME/.local/bin"
 
-  if [[ -f "$local_bin/maintain-system" ]]; then
+  if [[ -x "$local_bin/maintain-system" ]]; then
     echo "$local_bin/maintain-system"
     return 0
   fi

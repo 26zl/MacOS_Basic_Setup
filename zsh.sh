@@ -384,8 +384,8 @@ fi
 # Alias to the maintain-system script:
 # Uses XDG_DATA_HOME if set, otherwise fall back to ~/.local/bin
 maintain_system_bin="${XDG_DATA_HOME:-$HOME/.local/share}/../bin/maintain-system"
-[[ -f "$maintain_system_bin" ]] || maintain_system_bin="$HOME/.local/bin/maintain-system"
-if [[ -f "$maintain_system_bin" ]]; then
+[[ -x "$maintain_system_bin" ]] || maintain_system_bin="$HOME/.local/bin/maintain-system"
+if [[ -x "$maintain_system_bin" ]]; then
   alias update="$maintain_system_bin update"
   alias verify="$maintain_system_bin verify"
   alias versions="$maintain_system_bin versions"
