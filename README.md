@@ -157,11 +157,13 @@ Includes: Oh My Zsh, Powerlevel10k, syntax highlighting, autosuggestions, FZF.
 To get the exact same terminal design as shown in the preview:
 
 1. **Install Ghostty** (if not already installed):
+
    ```bash
    brew install --cask ghostty
    ```
 
 2. **Copy the configuration file**:
+
    ```bash
    cp "Ghostty config.txt" ~/.config/ghostty/config
    ```
@@ -172,6 +174,7 @@ To get the exact same terminal design as shown in the preview:
    - Or simply copy the entire `background/` directory and reference it from the config
 
 The Ghostty config includes:
+
 - Dark theme with custom colors
 - Background image support
 - Optimized font settings
