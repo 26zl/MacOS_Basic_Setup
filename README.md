@@ -37,13 +37,15 @@ versions  # Display versions of all tools
 
 ## Features
 
-- **One Command Updates** - Update Homebrew, MacPorts, Nix, Python, Node.js, Ruby, Rust, Go, Swift with `update`
+- **One Command Updates** - Update Homebrew, MacPorts, Nix, mas, Python, Node.js, Ruby, Rust, Go, Swift with `update`
 - **Multi-Language Support** - Python (pyenv), Node.js (nvm), Ruby (chruby), Rust (rustup), Swift (swiftly), Go, Java
-- **Package Managers** - Homebrew, MacPorts, Nix, Conda, pipx, npm, gem, cargo
+- **Package Managers** - Homebrew, MacPorts, Nix, mas (Mac App Store CLI), Conda, pipx, npm, gem, cargo
 - **Beautiful Terminal** - Oh My Zsh with Powerlevel10k, syntax highlighting, autosuggestions
 - **Performance Optimized** - Lazy loading and PATH cleanup for faster shell startup
 - **System Protection** - Automatically detects and protects macOS system Python/Ruby from modification
 - **Permanent Configuration** - Go toolchain upgrades via Homebrew are made permanent via `.zprofile`
+- **CI/Cron Safe** - Non-interactive mode support (`NONINTERACTIVE=1` or `CI=1`) - automatically skips prompts and potentially destructive operations
+- **Smart Package Manager Detection** - Automatically sources nvm and chruby shell functions for non-interactive shells
 
 ## Installation
 
@@ -60,7 +62,12 @@ source ~/.zshrc
 
 **Security Note**: The installation script downloads external scripts (Homebrew, Oh My Zsh). For maximum security, review `install.sh` before running or install manually.
 
-**Installs**: Homebrew (if missing), Git (if missing), Oh My Zsh, Powerlevel10k, ZSH plugins, FZF, maintain-system script, zsh config
+**Requirements**: Xcode Command Line Tools (required - will be installed automatically if missing), Git (included with Xcode CLT)
+
+**Installs**:
+
+- **Required**: Xcode Command Line Tools, Git, Oh My Zsh, Powerlevel10k, ZSH plugins, maintain-system script, zsh config
+- **Optional** (with interactive prompts): Homebrew, MacPorts, mas (Mac App Store CLI), Nix, FZF
 
 ## Usage
 
@@ -76,11 +83,12 @@ versions  # Display versions of all tools
 
 **Package Managers:**
 
-- Homebrew (packages, cleanup, doctor check) - auto-installs if missing
-- MacPorts (ports tree, packages, cleanup)
-- Nix (profile/env updates, store cleanup, CLI upgrade checks, compaudit fixes)
-- Conda/Miniforge (conda and packages)
-- pipx (all installed packages)
+- Homebrew (packages, cleanup, doctor check) - skipped if not installed (install via `./install.sh`)
+- MacPorts (ports tree, packages, cleanup) - can be installed from source via CLI in `install.sh`, skipped if not installed
+- Nix (profile/env updates, store cleanup, CLI upgrade checks, compaudit fixes) - secure installation with `--proto '=https' --tlsv1.2`, skipped if not installed
+- mas (Mac App Store apps) - updates App Store apps via [mas-cli](https://github.com/mas-cli/mas), uses per-user authentication (no sudo), skipped if not installed
+- Conda/Miniforge (conda and packages) - skipped if not installed
+- pipx (all installed packages) - skipped if not installed
 
 **Languages & Version Managers:**
 
@@ -112,9 +120,47 @@ versions  # Display versions of all tools
 
 Nix maintenance is integrated: `update` handles profile/env updates, store cleanup, CLI upgrade checks (manual command), and compaudit fixes. `verify` shows daemon status (running/stopped). `versions` shows package counts.
 
+**Installation**: Nix can be installed via `install.sh` with secure installation using `--proto '=https' --tlsv1.2`. The installer will prompt you to follow the installation carefully as it may require your password and additional setup steps.
+
+### MacPorts Installation
+
+MacPorts can be installed from source via CLI through `install.sh`. The installation process will:
+
+- Check for Xcode Command Line Tools (required)
+- Download the latest MacPorts source code
+- Build and install MacPorts from source
+- Requires sudo for installation
+
+**Note**: After MacPorts installation, you may need to open a new terminal window for PATH changes to take effect.
+
+### mas (Mac App Store CLI)
+
+mas allows you to update App Store apps from the command line. Installation via `install.sh` requires Homebrew. The `update` command uses per-user App Store authentication (no sudo required).
+
+**Note**: You must be signed in to the App Store for mas to work. Sign in via: `open -a 'App Store'`
+
 ### Prerequisites
 
-`update` gracefully skips missing tools. Missing package managers (MacPorts, Nix, Conda, pipx) and version managers (pyenv, nvm, chruby, rustup, swiftly) are skipped. Homebrew and Git are auto-installed by `install.sh` if missing. Homebrew will also auto-install if missing when running `update`. Go and Java require manual installation.
+**Required**:
+
+- macOS (Intel or Apple Silicon)
+- Zsh
+- Xcode Command Line Tools (installed automatically by `install.sh` if missing)
+- Internet connection
+
+**Optional** (installed via interactive prompts in `install.sh`):
+
+- Homebrew (recommended - enables many features)
+- MacPorts (alternative package manager)
+- mas (Mac App Store CLI - requires Homebrew)
+- Nix (functional package manager)
+
+**Behavior**:
+
+- `install.sh` will prompt you interactively to install optional package managers (Homebrew, MacPorts, mas, Nix)
+- `update` gracefully skips missing tools and refers to `install.sh` for installation
+- Missing package managers (MacPorts, Nix, mas, Conda, pipx) and version managers (pyenv, nvm, chruby, rustup, swiftly) are skipped
+- Go and Java require manual installation
 
 ### File Paths
 
@@ -140,7 +186,7 @@ Customize with environment variables:
 
 ## Supported Tools
 
-**Package Managers**: Homebrew, MacPorts, Nix, Conda/Miniforge, pipx
+**Package Managers**: Homebrew, MacPorts, Nix, mas (Mac App Store CLI), Conda/Miniforge, pipx
 
 **Languages**: Python (pyenv), Node.js (nvm), Ruby (chruby), Rust (rustup), Swift (swiftly), Go, Java
 
@@ -214,7 +260,20 @@ Recommended tools: [Objective-See](https://objective-see.org/tools.html) (Lulu, 
 
 ## Requirements
 
-macOS (Intel or Apple Silicon), Zsh, internet connection. Homebrew and Git are auto-installed by `install.sh` if missing. Homebrew will also auto-install if missing when running `update`.
+**Required**:
+- macOS (Intel or Apple Silicon)
+- Zsh
+- Xcode Command Line Tools (installed automatically by `install.sh` if missing)
+- Internet connection
+
+**Optional** (installed via interactive prompts):
+
+- Homebrew (recommended)
+- MacPorts
+- mas (Mac App Store CLI - requires Homebrew)
+- Nix
+
+**Note**: `install.sh` will prompt you to install optional package managers. In non-interactive mode (CI/cron), prompts are automatically answered "yes" for testing purposes.
 
 ## Testing
 
@@ -227,7 +286,9 @@ macOS (Intel or Apple Silicon), Zsh, internet connection. Homebrew and Git are a
 
 Contributions welcome! Before submitting a PR: run `./quick-test.sh`, ensure ShellCheck passes, verify no secrets, test on Intel and Apple Silicon.
 
-**CI/CD**: ShellCheck, Gitleaks (secrets), Trivy (security), syntax checks, macOS functionality tests. See `.github/workflows/` for details.
+**CI/CD**: ShellCheck, Gitleaks (secrets), Trivy (security), syntax checks, comprehensive macOS functionality tests. See `.github/workflows/` for details.
+
+**CI/Cron Safety**: The project is designed to be safe for automated runs. Set `NONINTERACTIVE=1` or `CI=1` to automatically skip all prompts and potentially destructive operations. All interactive prompts respect these environment variables.
 
 ## License
 

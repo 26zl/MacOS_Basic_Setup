@@ -21,6 +21,34 @@ warn() {
   echo "${YELLOW}⚠️  $1${NC}"
 }
 
+# Ask user for confirmation
+_ask_user() {
+  local prompt="$1"
+  local default="${2:-N}"
+  
+  # Skip prompts in non-interactive mode
+  if [[ -n "${NONINTERACTIVE:-}" ]] || [[ -n "${CI:-}" ]]; then
+    return 1
+  fi
+  
+  echo -n "$prompt "
+  if [[ "$default" == "Y" ]]; then
+    echo -n "[Y/n]: "
+  else
+    echo -n "[y/N]: "
+  fi
+  
+  read -r response
+  if [[ -z "$response" ]]; then
+    response="$default"
+  fi
+  
+  case "$response" in
+    [Yy]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Check if running on macOS
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "${RED}❌ Error: This script is designed for macOS only${NC}"
@@ -41,32 +69,43 @@ _detect_brew_prefix() {
 HOMEBREW_PREFIX="$(_detect_brew_prefix)"
 
 
-# Function to install Git if not present
-install_git() {
-  if ! command -v git >/dev/null 2>&1; then
-    echo "${YELLOW}📦 Git not found. Installing Git...${NC}"
-    # Try to install via Homebrew first (if available)
-    if [[ -n "$HOMEBREW_PREFIX" ]] && command -v brew >/dev/null 2>&1; then
-      if brew install git 2>/dev/null; then
-        echo "${GREEN}✅ Git installed via Homebrew${NC}"
-        return 0
-      fi
-    fi
-    # If Homebrew not available, try to install Xcode Command Line Tools (which includes Git)
-    echo "${YELLOW}📦 Installing Xcode Command Line Tools (includes Git)...${NC}"
+# Function to install Xcode Command Line Tools (required)
+install_xcode_clt() {
+  # Check if Xcode Command Line Tools are installed
+  if ! xcode-select -p >/dev/null 2>&1; then
+    echo "${YELLOW}⚠️  IMPORTANT: Xcode Command Line Tools are required${NC}"
+    echo "  ${BLUE}INFO:${NC} Xcode Command Line Tools include essential development tools"
+    echo "  ${BLUE}INFO:${NC} This includes: Git, clang, make, and other build tools"
+    echo ""
+    echo "  Installing Xcode Command Line Tools..."
+    echo "  ${BLUE}INFO:${NC} A dialog will appear - please click 'Install' and wait for completion"
+    echo ""
+    
     if xcode-select --install 2>/dev/null; then
       echo "${GREEN}✅ Xcode Command Line Tools installation started${NC}"
       echo "${YELLOW}⚠️  Please complete the installation dialog and run this script again${NC}"
+      echo "  ${BLUE}INFO:${NC} After installation completes, run: ./install.sh"
       exit 0
-    elif xcode-select -p >/dev/null 2>&1; then
-      # CLT already installed, Git should be available
-      if command -v git >/dev/null 2>&1; then
-        echo "${GREEN}✅ Git found (via Xcode Command Line Tools)${NC}"
-        return 0
-      fi
+    else
+      echo "${RED}❌ Failed to start Xcode Command Line Tools installation${NC}"
+      echo "  ${BLUE}INFO:${NC} Please install manually: xcode-select --install"
+      echo "  ${BLUE}INFO:${NC} Or download from: https://developer.apple.com/download/all/"
+      exit 1
     fi
-    echo "${RED}❌ Failed to install Git${NC}"
-    return 1
+  else
+    echo "${GREEN}✅ Xcode Command Line Tools already installed${NC}"
+    local clt_path=$(xcode-select -p 2>/dev/null || echo "")
+    if [[ -n "$clt_path" ]]; then
+      echo "  ${BLUE}INFO:${NC} Installed at: $clt_path"
+    fi
+  fi
+  
+  # Verify Git is available (should be included in Xcode CLT)
+  if ! command -v git >/dev/null 2>&1; then
+    echo "${RED}❌ Git not found after Xcode Command Line Tools installation${NC}"
+    echo "  ${BLUE}INFO:${NC} This should not happen - Git is included in Xcode CLT"
+    echo "  ${BLUE}INFO:${NC} Please verify Xcode CLT installation: xcode-select -p"
+    exit 1
   else
     echo "${GREEN}✅ Git found: $(git --version)${NC}"
   fi
@@ -75,14 +114,31 @@ install_git() {
 # Function to install Homebrew if not present
 install_homebrew() {
   if [[ -z "$HOMEBREW_PREFIX" ]]; then
-    echo "${YELLOW}📦 Homebrew not found. Installing Homebrew...${NC}"
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    HOMEBREW_PREFIX="$(_detect_brew_prefix)"
-    if [[ -n "$HOMEBREW_PREFIX" ]]; then
-      echo "${GREEN}✅ Homebrew installed successfully${NC}"
+    if _ask_user "${YELLOW}📦 Homebrew not found. Install Homebrew?" "Y"; then
+      echo ""
+      echo "${YELLOW}⚠️  IMPORTANT: Please follow the Homebrew installation carefully${NC}"
+      echo "  ${BLUE}INFO:${NC} The installer may prompt you for:"
+      echo "    - Your password (for sudo)"
+      echo "    - Confirmation to install Xcode Command Line Tools (if not installed)"
+      echo "    - Additional setup steps"
+      echo ""
+      echo "  ${BLUE}INFO:${NC} Please read all messages from the installer and follow instructions"
+      echo "  ${BLUE}INFO:${NC} The installation process will be shown below:"
+      echo ""
+      echo "  Installing Homebrew..."
+      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      HOMEBREW_PREFIX="$(_detect_brew_prefix)"
+      if [[ -n "$HOMEBREW_PREFIX" ]]; then
+        echo ""
+        echo "${GREEN}✅ Homebrew installed successfully${NC}"
+      else
+        echo ""
+        echo "${RED}❌ Failed to install Homebrew${NC}"
+        exit 1
+      fi
     else
-      echo "${RED}❌ Failed to install Homebrew${NC}"
-      exit 1
+      echo "${YELLOW}⚠️  Skipping Homebrew installation${NC}"
+      echo "  ${BLUE}INFO:${NC} You can install it later by running: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
     fi
   else
     echo "${GREEN}✅ Homebrew found at: $HOMEBREW_PREFIX${NC}"
@@ -162,6 +218,194 @@ install_fzf() {
     fi
   else
     echo "${GREEN}✅ FZF already installed${NC}"
+  fi
+}
+
+# Function to install mas (Mac App Store CLI)
+install_mas() {
+  if ! command -v mas >/dev/null 2>&1; then
+    if [[ -n "$HOMEBREW_PREFIX" ]] && command -v brew >/dev/null 2>&1; then
+      if _ask_user "${YELLOW}📦 mas (Mac App Store CLI) not found. Install mas via Homebrew?" "Y"; then
+        echo "  Installing mas via Homebrew..."
+        if "$HOMEBREW_PREFIX/bin/brew" install mas; then
+          echo "${GREEN}✅ mas installed${NC}"
+          echo "  ${BLUE}INFO:${NC} Sign in to App Store to use mas: open -a 'App Store'"
+        else
+          warn "mas installation failed (try: brew install mas)"
+        fi
+      else
+        echo "${YELLOW}⚠️  Skipping mas installation${NC}"
+      fi
+    else
+      if [[ -z "$HOMEBREW_PREFIX" ]]; then
+        echo "${YELLOW}⚠️  mas requires Homebrew. Install Homebrew first.${NC}"
+      else
+        warn "mas not found. Install it manually: brew install mas"
+      fi
+    fi
+  else
+    echo "${GREEN}✅ mas already installed${NC}"
+  fi
+}
+
+# Function to install MacPorts
+install_macports() {
+  if ! command -v port >/dev/null 2>&1; then
+    if _ask_user "${YELLOW}📦 MacPorts not found. Install MacPorts?" "N"; then
+      echo ""
+      echo "${YELLOW}⚠️  IMPORTANT: Please follow the MacPorts installation carefully${NC}"
+      echo "  ${BLUE}INFO:${NC} This will install MacPorts from source via CLI"
+      echo "  ${BLUE}INFO:${NC} The installation may prompt you for:"
+      echo "    - Your password (for sudo)"
+      echo "    - Confirmation to install Xcode Command Line Tools (if not installed)"
+      echo "    - Agreement to Xcode license (if Xcode is installed)"
+      echo ""
+      echo "  ${BLUE}INFO:${NC} Please read all messages and follow instructions carefully"
+      echo "  ${BLUE}INFO:${NC} The installation process will be shown below:"
+      echo ""
+      
+      # Check for Xcode Command Line Tools (should already be installed, but verify)
+      if ! xcode-select -p >/dev/null 2>&1; then
+        echo "  ${RED}❌ Xcode Command Line Tools are required for MacPorts${NC}"
+        echo "  ${BLUE}INFO:${NC} Xcode CLT should have been installed earlier in the installation process"
+        echo "  ${BLUE}INFO:${NC} Please run: xcode-select --install"
+        echo "  ${BLUE}INFO:${NC} Then run this script again to continue with MacPorts installation"
+        return 1
+      else
+        echo "  ${GREEN}✅ Xcode Command Line Tools found${NC}"
+      fi
+      
+      # Agree to Xcode license if needed
+      if command -v xcodebuild >/dev/null 2>&1; then
+        echo "  Checking Xcode license agreement..."
+        if ! sudo xcodebuild -license check >/dev/null 2>&1; then
+          echo "  ${YELLOW}⚠️  Xcode license agreement required${NC}"
+          echo "  ${BLUE}INFO:${NC} You may be prompted to accept the license"
+          sudo xcodebuild -license accept 2>/dev/null || {
+            echo "  ${YELLOW}⚠️  License acceptance may require manual confirmation${NC}"
+          }
+        fi
+      fi
+      
+      # Get latest MacPorts version
+      echo "  Fetching latest MacPorts version..."
+      local macports_version="2.11.6"  # Default fallback
+      local latest_url
+      latest_url=$(curl -s https://distfiles.macports.org/MacPorts/ | grep -oE 'MacPorts-[0-9]+\.[0-9]+\.[0-9]+\.tar\.bz2' | sort -V | tail -1 || echo "")
+      if [[ -n "$latest_url" ]]; then
+        macports_version=$(echo "$latest_url" | sed 's/MacPorts-\(.*\)\.tar\.bz2/\1/')
+      fi
+      
+      local macports_tarball="MacPorts-${macports_version}.tar.bz2"
+      local macports_url="https://distfiles.macports.org/MacPorts/${macports_tarball}"
+      local temp_dir=$(mktemp -d)
+      
+      echo "  Installing MacPorts ${macports_version} from source..."
+      echo "  Downloading ${macports_tarball}..."
+      
+      cd "$temp_dir" || {
+        echo "  ${RED}❌ Failed to create temporary directory${NC}"
+        return 1
+      }
+      
+      if curl -fsSL -o "$macports_tarball" "$macports_url"; then
+        echo "  Extracting source code..."
+        if tar xf "$macports_tarball"; then
+          cd "MacPorts-${macports_version}" || {
+            echo "  ${RED}❌ Failed to navigate to source directory${NC}"
+            cd - >/dev/null || true
+            rm -rf "$temp_dir"
+            return 1
+          }
+          
+          echo "  Configuring MacPorts..."
+          if ./configure; then
+            echo "  Building MacPorts (this may take a while)..."
+            if make; then
+              echo "  Installing MacPorts (requires sudo)..."
+              if sudo make install; then
+                echo ""
+                echo "${GREEN}✅ MacPorts installed successfully${NC}"
+                echo "  ${BLUE}INFO:${NC} Please open a new terminal window for PATH changes to take effect"
+                echo "  ${BLUE}INFO:${NC} Then run: sudo port selfupdate"
+              else
+                echo "  ${RED}❌ MacPorts installation failed (make install)${NC}"
+                cd - >/dev/null || true
+                rm -rf "$temp_dir"
+                return 1
+              fi
+            else
+              echo "  ${RED}❌ MacPorts build failed (make)${NC}"
+              cd - >/dev/null || true
+              rm -rf "$temp_dir"
+              return 1
+            fi
+          else
+            echo "  ${RED}❌ MacPorts configuration failed (configure)${NC}"
+            cd - >/dev/null || true
+            rm -rf "$temp_dir"
+            return 1
+          fi
+        else
+          echo "  ${RED}❌ Failed to extract MacPorts source${NC}"
+          rm -rf "$temp_dir"
+          return 1
+        fi
+      else
+        echo "  ${RED}❌ Failed to download MacPorts source${NC}"
+        echo "  ${BLUE}INFO:${NC} Visit: https://www.macports.org/install.php for manual installation"
+        rm -rf "$temp_dir"
+        return 1
+      fi
+      
+      # Cleanup
+      cd - >/dev/null || true
+      rm -rf "$temp_dir"
+    else
+      echo "${YELLOW}⚠️  Skipping MacPorts installation${NC}"
+    fi
+  else
+    echo "${GREEN}✅ MacPorts already installed${NC}"
+  fi
+}
+
+# Function to install Nix
+install_nix() {
+  if ! command -v nix >/dev/null 2>&1 && ! [[ -d /nix ]] && ! [[ -f /nix/var/nix/profiles/default/bin/nix ]]; then
+    if _ask_user "${YELLOW}📦 Nix not found. Install Nix?" "N"; then
+      echo ""
+      echo "${YELLOW}⚠️  IMPORTANT: Please follow the Nix installation carefully${NC}"
+      echo "  ${BLUE}INFO:${NC} The installer may prompt you for:"
+      echo "    - Your password (for sudo)"
+      echo "    - Confirmation to create /nix directory"
+      echo "    - Additional setup steps"
+      echo ""
+      echo "  ${BLUE}INFO:${NC} Please read all messages from the installer and follow instructions"
+      echo "  ${BLUE}INFO:${NC} The installation process will be shown below:"
+      echo ""
+      echo "  Installing Nix..."
+      echo "  ${BLUE}INFO:${NC} This will run the official Nix installer"
+      echo ""
+      if sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install) --daemon; then
+        echo ""
+        echo "${GREEN}✅ Nix installed successfully${NC}"
+        echo "  ${BLUE}INFO:${NC} Restart your terminal or run: source ~/.zprofile"
+        echo "  ${BLUE}INFO:${NC} Then run: ./scripts/nix-macos-maintenance.sh ensure-path"
+      else
+        echo ""
+        echo "${RED}❌ Nix installation failed${NC}"
+        echo "  ${BLUE}INFO:${NC} Visit: https://nixos.org/download.html for manual installation"
+        echo "  ${BLUE}INFO:${NC} If installation was interrupted, you may need to clean up before retrying"
+      fi
+    else
+      echo "${YELLOW}⚠️  Skipping Nix installation${NC}"
+    fi
+  else
+    if [[ -d /nix ]] || [[ -f /nix/var/nix/profiles/default/bin/nix ]]; then
+      echo "${GREEN}✅ Nix detected (may need PATH setup)${NC}"
+    else
+      echo "${GREEN}✅ Nix already installed${NC}"
+    fi
   fi
 }
 
@@ -316,8 +560,8 @@ main() {
   echo "Starting installation..."
   echo ""
   
-  # Install Git if needed
-  install_git
+  # Install Xcode Command Line Tools (required - includes Git)
+  install_xcode_clt
   
   # Install Homebrew if needed
   install_homebrew
@@ -333,6 +577,15 @@ main() {
   
   # Install FZF
   install_fzf
+  
+  # Install mas (Mac App Store CLI)
+  install_mas
+  
+  # Install MacPorts (optional)
+  install_macports
+  
+  # Install Nix (optional)
+  install_nix
   
   # Setup maintain-system script
   setup_maintain_system

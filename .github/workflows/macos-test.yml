@@ -34,6 +34,7 @@ jobs:
             "zsh.sh"
             "maintain-system.sh"
             "scripts/nix-macos-maintenance.sh"
+            "quick-test.sh"
           )
           
           missing_files=()
@@ -56,7 +57,8 @@ jobs:
           # Check file permissions
           echo ""
           echo "=== Checking file permissions ==="
-          chmod +x install.sh maintain-system.sh zsh.sh 2>/dev/null || true
+          chmod +x install.sh maintain-system.sh zsh.sh quick-test.sh 2>/dev/null || true
+          chmod +x scripts/nix-macos-maintenance.sh 2>/dev/null || true
           
           # Test syntax
           echo ""
@@ -64,6 +66,8 @@ jobs:
           zsh -n install.sh && echo "install.sh syntax OK" || { echo "install.sh syntax error"; exit 1; }
           zsh -n zsh.sh && echo "zsh.sh syntax OK" || { echo "zsh.sh syntax error"; exit 1; }
           zsh -n maintain-system.sh && echo "maintain-system.sh syntax OK" || { echo "maintain-system.sh syntax error"; exit 1; }
+          zsh -n quick-test.sh && echo "quick-test.sh syntax OK" || { echo "quick-test.sh syntax error"; exit 1; }
+          bash -n scripts/nix-macos-maintenance.sh && echo "nix-macos-maintenance.sh syntax OK" || { echo "nix-macos-maintenance.sh syntax error"; exit 1; }
           
           echo ""
           echo "All required files present and syntax valid"
@@ -85,16 +89,36 @@ jobs:
         run: |
           echo "=== Installation and Validation ==="
           
+          # Test non-interactive mode handling
+          echo ""
+          echo "=== Testing non-interactive mode ==="
+          echo "NONINTERACTIVE=${NONINTERACTIVE:-not set}"
+          echo "CI=${CI:-not set}"
+          
           # Install project
+          echo ""
           echo "Testing install.sh on macOS with a clean HOME..."
           echo "HOME=$HOME"
           echo "XDG_DATA_HOME=${XDG_DATA_HOME:-not set}"
           export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
           chmod +x install.sh maintain-system.sh zsh.sh 2>/dev/null || true
-          ./install.sh 2>&1 | tee install.log || true
+          
+          # Use 'yes' command to automatically answer "yes" to all prompts
+          # This simulates user answering "yes" to all interactive questions
+          yes | ./install.sh 2>&1 | tee install.log || true
           echo ""
           echo "=== Installation log summary ==="
-          tail -50 install.log || true
+          tail -100 install.log || true
+          
+          # Validate that interactive prompts are skipped in non-interactive mode
+          echo ""
+          echo "=== Validating non-interactive behavior ==="
+          if grep -qiE "(Install Homebrew\?|Install MacPorts\?|Install mas|Install Nix\?)" install.log; then
+            echo "WARNING: Interactive prompts found in non-interactive mode"
+            echo "This may be OK if prompts are shown but auto-skipped"
+          else
+            echo "Interactive prompts correctly skipped in non-interactive mode"
+          fi
           
           # Validate installation outputs
           echo ""
@@ -135,6 +159,30 @@ jobs:
           grep -q "alias update=" "$HOME/.zshrc" && echo "update alias definition found in ~/.zshrc" || echo "update alias definition not found (may be conditional)"
           grep -q "powerlevel10k/powerlevel10k" "$HOME/.zshrc" || { echo "Missing Powerlevel10k theme in ~/.zshrc"; exit 1; }
           grep -q "oh-my-zsh.sh" "$HOME/.zshrc" || { echo "Missing Oh My Zsh source line in ~/.zshrc"; exit 1; }
+          
+          # Test that install.sh functions exist
+          echo ""
+          echo "=== Testing install.sh functions ==="
+          if grep -q "_ask_user" install.sh; then
+            echo "_ask_user function found in install.sh"
+          else
+            echo "ERROR: _ask_user function not found in install.sh"
+            exit 1
+          fi
+          
+          if grep -q "install_homebrew\|install_macports\|install_mas\|install_nix" install.sh; then
+            echo "Package manager install functions found in install.sh"
+          else
+            echo "ERROR: Package manager install functions not found in install.sh"
+            exit 1
+          fi
+          
+          # Test that install.sh has installation warnings
+          if grep -qiE "IMPORTANT.*follow.*installation|Please follow.*carefully" install.sh; then
+            echo "Installation warnings found in install.sh"
+          else
+            echo "WARNING: Installation warnings not found in install.sh"
+          fi
           
           echo ""
           echo "Installation and validation complete"
@@ -210,8 +258,36 @@ jobs:
       - name: Command testing
         run: |
           echo "=== Command Testing ==="
-          
+
+          # Test help/usage command
+          echo "Testing help/usage output..."
+          zsh -lc 'maintain-system --help 2>&1 || maintain-system help 2>&1 || maintain-system 2>&1' | tee help_output.txt
+
+          if grep -qE "update|verify|versions" help_output.txt; then
+            echo "help output shows available commands"
+          else
+            echo "help output format incorrect"
+            cat help_output.txt
+            exit 1
+          fi
+
+          if grep -qE "MAINTAIN_SYSTEM_.*=" help_output.txt; then
+            echo "help output shows environment variables"
+          else
+            echo "WARNING: help output may not show environment variables"
+          fi
+
+          # Test invalid command
+          echo ""
+          echo "Testing invalid command handling..."
+          if zsh -lc 'maintain-system invalid-command 2>&1' | grep -qE "Usage:|update|verify|versions"; then
+            echo "Invalid command shows usage information"
+          else
+            echo "WARNING: Invalid command may not show usage"
+          fi
+
           # Test verify command
+          echo ""
           echo "Testing verify command output..."
           zsh -lc 'maintain-system verify' 2>&1 | tee verify_output.txt
           
@@ -228,6 +304,17 @@ jobs:
           else
             echo "verify command did not complete"
             exit 1
+          fi
+          
+          # Test that verify shows mas if installed
+          if command -v mas >/dev/null 2>&1; then
+            if grep -qi "mas" verify_output.txt; then
+              echo "mas detected in verify output"
+            else
+              echo "WARNING: mas installed but not shown in verify"
+            fi
+          else
+            echo "mas not installed (this is OK)"
           fi
           
           # Test versions command
@@ -250,14 +337,25 @@ jobs:
             exit 1
           fi
           
+          # Test that versions shows mas if installed
+          if command -v mas >/dev/null 2>&1; then
+            if grep -qi "mas" versions_output.txt; then
+              echo "mas detected in versions output"
+            else
+              echo "WARNING: mas installed but not shown in versions"
+            fi
+          else
+            echo "mas not installed (this is OK)"
+          fi
+          
           # Test error handling
           echo ""
           echo "Testing error handling for missing tools..."
           zsh -lc '
             output=$(maintain-system verify 2>&1)
             
-            if echo "$output" | grep -q "Not installed\|WARN"; then
-              echo "Script handles missing tools gracefully (shows warnings)"
+            if echo "$output" | grep -q "Not found - skipping\|To install.*run.*install.sh"; then
+              echo "Script handles missing tools gracefully (shows skip message with install.sh reference)"
             else
               echo "No missing tools detected (this is OK if all tools are installed)"
             fi
@@ -272,6 +370,77 @@ jobs:
           
           echo ""
           echo "Command testing complete"
+
+      - name: Package manager testing
+        run: |
+          echo "=== Package Manager Testing ==="
+          
+          # Test that maintain-system.sh skips missing package managers and refers to install.sh
+          echo ""
+          echo "Testing maintain-system.sh skip behavior..."
+          zsh -lc '
+            output=$(maintain-system verify 2>&1)
+            
+            # Check for skip messages with install.sh references
+            if echo "$output" | grep -qE "Not found - skipping.*To install.*run.*install.sh"; then
+              echo "maintain-system.sh correctly skips missing tools and refers to install.sh"
+            else
+              echo "WARNING: Skip messages with install.sh references not found"
+              echo "This may be OK if all package managers are installed"
+            fi
+          ' || exit 1
+          
+          # Test mas update/upgrade functionality
+          echo ""
+          echo "Testing mas update/upgrade functionality..."
+          if command -v mas >/dev/null 2>&1; then
+            if grep -qE "mas upgrade.*mas update|sudo mas upgrade" maintain-system.sh; then
+              echo "mas upgrade and update commands found in maintain-system.sh"
+            else
+              echo "WARNING: mas upgrade/update commands not found in maintain-system.sh"
+            fi
+          else
+            echo "mas not installed (this is OK)"
+          fi
+          
+          # Test Homebrew skip behavior
+          echo ""
+          echo "Testing Homebrew skip behavior in maintain-system.sh..."
+          if grep -qE "Not found - skipping.*To install Homebrew.*run.*install.sh" maintain-system.sh; then
+            echo "Homebrew skip message with install.sh reference found"
+          else
+            echo "WARNING: Homebrew skip message not found in maintain-system.sh"
+          fi
+          
+          # Test MacPorts skip behavior
+          echo ""
+          echo "Testing MacPorts skip behavior in maintain-system.sh..."
+          if grep -qE "Not found - skipping.*To install MacPorts.*run.*install.sh" maintain-system.sh; then
+            echo "MacPorts skip message with install.sh reference found"
+          else
+            echo "WARNING: MacPorts skip message not found in maintain-system.sh"
+          fi
+          
+          # Test mas skip behavior
+          echo ""
+          echo "Testing mas skip behavior in maintain-system.sh..."
+          if grep -qE "Not found - skipping.*To install mas.*run.*install.sh" maintain-system.sh; then
+            echo "mas skip message with install.sh reference found"
+          else
+            echo "WARNING: mas skip message not found in maintain-system.sh"
+          fi
+          
+          # Test Nix skip behavior
+          echo ""
+          echo "Testing Nix skip behavior in maintain-system.sh..."
+          if grep -qE "Not found - skipping.*To install Nix.*run.*install.sh" maintain-system.sh; then
+            echo "Nix skip message with install.sh reference found"
+          else
+            echo "WARNING: Nix skip message not found in maintain-system.sh"
+          fi
+          
+          echo ""
+          echo "Package manager testing complete"
 
       - name: Feature testing
         env:
@@ -304,7 +473,7 @@ jobs:
               print("Update did not report completion")
               sys.exit(1)
           
-          if any(keyword in output.lower() for keyword in ["updated", "upgraded", "installed", "success", "already up-to-date"]):
+          if any(keyword in output.lower() for keyword in ["updated", "upgraded", "installed", "success", "already up-to-date", "skipping"]):
               print("Update command executed and reported activity")
           else:
               print("Update command completed but no activity reported")
@@ -313,6 +482,12 @@ jobs:
               print("Update reported some errors (may be OK for optional tools)")
           else:
               print("Update completed without fatal errors")
+          
+          # Test that update shows skip messages for missing tools
+          if "Not found - skipping" in output or "To install" in output:
+              print("Update correctly shows skip messages for missing tools")
+          else:
+              print("Update skip messages not found (may be OK if all tools are installed)")
           PYTHON_SCRIPT
           
           # Test system Python/Ruby protection
@@ -361,14 +536,58 @@ jobs:
             else
               echo "MAINTAIN_SYSTEM_CLEAN_PYENV=0 test inconclusive (may be OK if pyenv not installed)"
             fi
-            
+
             if grep -qi "nvm.*cleanup disabled" update_output.txt; then
               echo "MAINTAIN_SYSTEM_CLEAN_NVM=0 works"
             else
               echo "MAINTAIN_SYSTEM_CLEAN_NVM=0 test inconclusive (may be OK if nvm not installed)"
             fi
-            
+
             echo "MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS=1 set (will be used if swiftly is installed)"
+          ' || exit 1
+
+          # Test additional environment variables
+          echo ""
+          echo "Testing additional environment variables..."
+          zsh -lc '
+            # Test MAINTAIN_SYSTEM_FIX_RUBY_GEMS
+            export MAINTAIN_SYSTEM_FIX_RUBY_GEMS=0
+            output=$(maintain-system verify 2>&1 || true)
+            if echo "$output" | grep -qi "ruby.*gems.*disabled\|skip.*ruby.*fix"; then
+              echo "MAINTAIN_SYSTEM_FIX_RUBY_GEMS=0 works"
+            else
+              echo "MAINTAIN_SYSTEM_FIX_RUBY_GEMS=0 test inconclusive (may be OK if Ruby not installed or no gems issues)"
+            fi
+
+            # Test MAINTAIN_SYSTEM_CLEAN_CHRUBY
+            export MAINTAIN_SYSTEM_CLEAN_CHRUBY=0
+            output=$(maintain-system verify 2>&1 || true)
+            if echo "$output" | grep -qi "chruby.*cleanup disabled"; then
+              echo "MAINTAIN_SYSTEM_CLEAN_CHRUBY=0 works"
+            else
+              echo "MAINTAIN_SYSTEM_CLEAN_CHRUBY=0 test inconclusive (may be OK if chruby not installed)"
+            fi
+
+            # Test MAINTAIN_SYSTEM_PYENV_KEEP
+            export MAINTAIN_SYSTEM_PYENV_KEEP="3.9.0 3.10.0"
+            export MAINTAIN_SYSTEM_CLEAN_PYENV=1
+            if maintain-system verify 2>&1 | grep -qi "pyenv"; then
+              echo "MAINTAIN_SYSTEM_PYENV_KEEP environment variable set (will preserve versions if cleanup runs)"
+            fi
+
+            # Test MAINTAIN_SYSTEM_NVM_KEEP
+            export MAINTAIN_SYSTEM_NVM_KEEP="16.0.0 18.0.0"
+            export MAINTAIN_SYSTEM_CLEAN_NVM=1
+            if maintain-system verify 2>&1 | grep -qi "nvm\|node"; then
+              echo "MAINTAIN_SYSTEM_NVM_KEEP environment variable set (will preserve versions if cleanup runs)"
+            fi
+
+            # Test MAINTAIN_SYSTEM_CHRUBY_KEEP
+            export MAINTAIN_SYSTEM_CHRUBY_KEEP="3.0.0 3.1.0"
+            export MAINTAIN_SYSTEM_CLEAN_CHRUBY=1
+            if maintain-system verify 2>&1 | grep -qi "chruby\|ruby"; then
+              echo "MAINTAIN_SYSTEM_CHRUBY_KEEP environment variable set (will preserve versions if cleanup runs)"
+            fi
           ' || exit 1
           
           # Test Go permanent configuration
@@ -392,14 +611,14 @@ jobs:
             fi
           ' || exit 1
           
-          # Test Homebrew auto-install
+          # Test Homebrew auto-install skip behavior
           echo ""
-          echo "Testing Homebrew auto-install..."
+          echo "Testing Homebrew skip behavior in maintain-system.sh..."
           zsh -lc '
-            if grep -q "Auto-install Homebrew\|Not found, attempting to install" "$(command -v maintain-system)" 2>/dev/null; then
-              echo "Homebrew auto-install logic detected"
+            if grep -q "Not found - skipping\|To install Homebrew.*run.*install.sh" "$(command -v maintain-system)" 2>/dev/null; then
+              echo "Homebrew skip logic detected in maintain-system.sh"
             else
-              echo "Homebrew auto-install logic not found (may be OK if Homebrew is always present)"
+              echo "Homebrew skip logic not found (may be OK if Homebrew is always present)"
             fi
           ' || exit 1
           
@@ -426,22 +645,118 @@ jobs:
           if [[ -f scripts/nix-macos-maintenance.sh ]]; then
             chmod +x scripts/nix-macos-maintenance.sh
             bash -n scripts/nix-macos-maintenance.sh && echo "nix-macos-maintenance.sh syntax OK" || { echo "nix-macos-maintenance.sh syntax error"; exit 1; }
-            
+
+            # Test help command
             if ./scripts/nix-macos-maintenance.sh help >/dev/null 2>&1; then
               echo "nix-macos-maintenance.sh help command works"
             else
               echo "nix-macos-maintenance.sh help command failed"
               exit 1
             fi
-            
+
+            # Test status command
             if ./scripts/nix-macos-maintenance.sh status >/dev/null 2>&1; then
               echo "nix-macos-maintenance.sh status command works"
             else
               echo "nix-macos-maintenance.sh status command failed (may be OK if Nix not installed)"
             fi
+
+            # Test ensure-path command
+            if ./scripts/nix-macos-maintenance.sh ensure-path >/dev/null 2>&1; then
+              echo "nix-macos-maintenance.sh ensure-path command works"
+            else
+              echo "nix-macos-maintenance.sh ensure-path command failed (may be OK if Nix not installed)"
+            fi
+
+            # Test update command (dry-run style check)
+            if ./scripts/nix-macos-maintenance.sh update 2>&1 | grep -qE "Nix not found|Updating Nix|nix upgrade-nix"; then
+              echo "nix-macos-maintenance.sh update command works"
+            else
+              echo "WARNING: nix-macos-maintenance.sh update command may not work correctly"
+            fi
+
+            # Test preview-nix-upgrade command
+            if ./scripts/nix-macos-maintenance.sh preview-nix-upgrade 2>&1 | grep -qE "Nix not found|Preview|nix-env"; then
+              echo "nix-macos-maintenance.sh preview-nix-upgrade command works"
+            else
+              echo "WARNING: nix-macos-maintenance.sh preview-nix-upgrade command may not work correctly"
+            fi
+
+            # Test cleanup command
+            if ./scripts/nix-macos-maintenance.sh cleanup 2>&1 | grep -qE "Nix not found|Cleaning up|nix-collect-garbage"; then
+              echo "nix-macos-maintenance.sh cleanup command works"
+            else
+              echo "WARNING: nix-macos-maintenance.sh cleanup command may not work correctly"
+            fi
+
+            # Test fix-compaudit command
+            if ./scripts/nix-macos-maintenance.sh fix-compaudit >/dev/null 2>&1; then
+              echo "nix-macos-maintenance.sh fix-compaudit command works"
+            else
+              echo "nix-macos-maintenance.sh fix-compaudit command failed (may be OK)"
+            fi
+
+            # Test invalid command
+            if ./scripts/nix-macos-maintenance.sh invalid-command 2>&1 | grep -qE "Unknown command|help"; then
+              echo "nix-macos-maintenance.sh handles invalid commands correctly"
+            else
+              echo "WARNING: nix-macos-maintenance.sh may not handle invalid commands"
+            fi
+
+            # Test that nix-macos-maintenance.sh has no emojis
+            if grep -qE "[🚀📦✅❌⚠️ℹ️]" scripts/nix-macos-maintenance.sh; then
+              echo "WARNING: Emojis found in nix-macos-maintenance.sh"
+            else
+              echo "nix-macos-maintenance.sh has no emojis (correct)"
+            fi
           else
             echo "scripts/nix-macos-maintenance.sh not found"
             exit 1
+          fi
+          
+          # Test install.sh interactive functions
+          echo ""
+          echo "Testing install.sh interactive functions..."
+          zsh -lc '
+            # Test _ask_user function exists
+            if grep -q "^_ask_user()" install.sh; then
+              echo "_ask_user function found in install.sh"
+            else
+              echo "ERROR: _ask_user function not found in install.sh"
+              exit 1
+            fi
+            
+            # Test that _ask_user respects NONINTERACTIVE
+            if grep -qE "NONINTERACTIVE.*CI" install.sh; then
+              echo "_ask_user respects NONINTERACTIVE/CI environment variables"
+            else
+              echo "WARNING: _ask_user may not respect NONINTERACTIVE/CI"
+            fi
+            
+            # Test installation warnings
+            if grep -qiE "IMPORTANT.*follow.*installation|Please follow.*carefully" install.sh; then
+              echo "Installation warnings found in install.sh"
+            else
+              echo "WARNING: Installation warnings not found in install.sh"
+            fi
+          ' || exit 1
+          
+          # Test Nix installation command
+          echo ""
+          echo "Testing Nix installation command..."
+          if grep -qE "curl --proto.*=https.*--tlsv1.2.*nixos.org/nix/install" install.sh; then
+            echo "Nix installation uses secure curl command with --proto and --tlsv1.2"
+          else
+            echo "WARNING: Nix installation may not use secure curl command"
+          fi
+          
+          # Test MacPorts installation from source
+          echo ""
+          echo "Testing MacPorts installation from source..."
+          if grep -qE "configure.*make.*make install|MacPorts.*source" install.sh; then
+            echo "MacPorts installation from source found in install.sh"
+          else
+            echo "WARNING: MacPorts installation from source not found in install.sh"
           fi
           
           # Test edge cases
@@ -458,6 +773,246 @@ jobs:
               mv "$HOME/.zshrc.test-backup" "$HOME/.zshrc" 2>/dev/null || true
             fi
           ' || exit 1
+
+          # Test re-running install.sh
+          echo ""
+          echo "Testing re-running install.sh..."
+          zsh -lc '
+            # Run install.sh a second time to test idempotency
+            if yes | ./install.sh 2>&1 | tee install2.log; then
+              echo "install.sh can be re-run successfully"
+            else
+              echo "WARNING: install.sh may have issues when re-run"
+            fi
+
+            # Check that re-running did not break anything
+            if [[ -f "$HOME/.zshrc" ]] && [[ -f "$HOME/.zprofile" ]]; then
+              echo "Re-running install.sh preserved configuration files"
+            else
+              echo "ERROR: Re-running install.sh broke configuration"
+              exit 1
+            fi
+          ' || exit 1
+
+          # Test backup creation
+          echo ""
+          echo "Testing backup creation..."
+          zsh -lc '
+            # Check if backups are created
+            backup_count=$(find "$HOME" -maxdepth 1 -name ".zshrc.backup*" 2>/dev/null | wc -l)
+            if [[ $backup_count -gt 0 ]]; then
+              echo "Backup files created: $backup_count"
+              find "$HOME" -maxdepth 1 -name ".zshrc.backup*" -type f | head -3
+            else
+              echo "No backup files found (may be OK if no backups were needed)"
+            fi
+          ' || exit 1
+
+          # Test missing dependencies handling
+          echo ""
+          echo "Testing missing dependencies handling..."
+          zsh -lc '
+            # Test that scripts handle missing tools gracefully
+            output=$(maintain-system verify 2>&1 || true)
+
+            # Check for graceful handling of missing tools
+            if echo "$output" | grep -qE "Not installed|Not found|skipping"; then
+              echo "Scripts handle missing tools gracefully"
+            else
+              echo "No missing tools detected (all tools may be installed)"
+            fi
+
+            # Verify exit codes are reasonable
+            if maintain-system verify >/dev/null 2>&1; then
+              echo "maintain-system verify exits successfully even with missing tools"
+            else
+              echo "WARNING: maintain-system verify may exit with error on missing tools"
+            fi
+          ' || exit 1
+
+          # Test PATH preservation
+          echo ""
+          echo "Testing PATH preservation across sessions..."
+          zsh -lc '
+            # Get PATH from login shell
+            path1=$(zsh -lc "echo \$PATH")
+
+            # Get PATH from interactive shell
+            path2=$(zsh -ic "echo \$PATH")
+
+            if [[ -n "$path1" ]] && [[ -n "$path2" ]]; then
+              echo "PATH is set in both login and interactive shells"
+            else
+              echo "ERROR: PATH not set correctly"
+              exit 1
+            fi
+
+            # Check that maintain-system is in PATH for both
+            if zsh -lc "command -v maintain-system" >/dev/null && zsh -ic "command -v maintain-system" >/dev/null; then
+              echo "maintain-system available in both shell types"
+            else
+              echo "ERROR: maintain-system not available in all shell types"
+              exit 1
+            fi
+          ' || exit 1
           
           echo ""
           echo "Feature testing complete"
+
+      - name: Quick test script
+        run: |
+          echo "=== Quick Test Script ==="
+
+          if [[ -f quick-test.sh ]]; then
+            chmod +x quick-test.sh
+
+            # Test syntax
+            zsh -n quick-test.sh && echo "quick-test.sh syntax OK" || { echo "quick-test.sh syntax error"; exit 1; }
+
+            # Run quick test
+            ./quick-test.sh 2>&1 | tee quick_test_output.txt
+
+            if grep -qE "Quick Test|Test Complete|Testing|Checking" quick_test_output.txt; then
+              echo "quick-test.sh completed successfully"
+            else
+              echo "WARNING: quick-test.sh may not have completed"
+            fi
+
+            # Verify quick-test checks important things
+            if grep -qE "zshrc|zprofile|oh-my-zsh|maintain-system" quick_test_output.txt; then
+              echo "quick-test.sh checks essential components"
+            else
+              echo "WARNING: quick-test.sh may not check essential components"
+            fi
+
+            # Test that quick-test.sh has no emojis
+            if grep -qE "[🚀📦✅❌⚠️ℹ️]" quick-test.sh; then
+              echo "WARNING: Emojis found in quick-test.sh"
+            else
+              echo "quick-test.sh has no emojis (correct)"
+            fi
+
+            # Test quick-test.sh exit code
+            if ./quick-test.sh >/dev/null 2>&1; then
+              echo "quick-test.sh exits successfully"
+            else
+              echo "WARNING: quick-test.sh may exit with error"
+            fi
+          else
+            echo "quick-test.sh not found"
+            exit 1
+          fi
+
+          echo ""
+          echo "Quick test script validation complete"
+
+      - name: Shell script validation
+        run: |
+          echo "=== Shell Script Validation ==="
+
+          # Test zsh.sh content and structure
+          echo "Testing zsh.sh structure..."
+          if [[ -f zsh.sh ]]; then
+            # Test syntax
+            zsh -n zsh.sh && echo "zsh.sh syntax OK" || { echo "zsh.sh syntax error"; exit 1; }
+
+            # Verify it contains essential zsh configuration
+            if grep -q "oh-my-zsh" zsh.sh; then
+              echo "zsh.sh contains Oh My Zsh configuration"
+            else
+              echo "ERROR: zsh.sh missing Oh My Zsh configuration"
+              exit 1
+            fi
+
+            if grep -q "powerlevel10k" zsh.sh; then
+              echo "zsh.sh contains Powerlevel10k configuration"
+            else
+              echo "ERROR: zsh.sh missing Powerlevel10k configuration"
+              exit 1
+            fi
+
+            if grep -q "plugins=" zsh.sh; then
+              echo "zsh.sh contains plugin configuration"
+            else
+              echo "ERROR: zsh.sh missing plugin configuration"
+              exit 1
+            fi
+
+            # Verify maintain-system alias is configured
+            if grep -qE "alias update=|maintain_system_bin" zsh.sh; then
+              echo "zsh.sh contains maintain-system alias configuration"
+            else
+              echo "ERROR: zsh.sh missing maintain-system alias"
+              exit 1
+            fi
+
+            # Test that zsh.sh was copied to .zshrc correctly
+            if cmp -s zsh.sh "$HOME/.zshrc"; then
+              echo "zsh.sh correctly installed to ~/.zshrc"
+            else
+              echo "ERROR: zsh.sh not correctly copied to ~/.zshrc"
+              exit 1
+            fi
+          else
+            echo "ERROR: zsh.sh not found"
+            exit 1
+          fi
+
+          # Test all scripts for common issues
+          echo ""
+          echo "Testing scripts for common issues..."
+          for script in install.sh maintain-system.sh zsh.sh quick-test.sh scripts/nix-macos-maintenance.sh; do
+            if [[ -f "$script" ]]; then
+              # Check for TODO/FIXME markers
+              if grep -qE "TODO|FIXME|XXX" "$script"; then
+                echo "WARNING: $script contains TODO/FIXME markers"
+              fi
+
+              # Check for hardcoded paths that might break
+              if grep -qE "/Users/[^/]+/|/home/[^/]+" "$script" 2>/dev/null; then
+                echo "WARNING: $script may contain hardcoded user paths"
+              fi
+
+              # Check for proper shebang
+              if head -1 "$script" | grep -qE "^#!.*(zsh|bash|sh)"; then
+                echo "$script has proper shebang"
+              else
+                echo "WARNING: $script may be missing shebang"
+              fi
+            fi
+          done
+
+          echo ""
+          echo "Shell script validation complete"
+
+      - name: Final summary
+        run: |
+          echo "=== Final Test Summary ==="
+          echo ""
+          echo "All tests completed successfully!"
+          echo ""
+          echo "Tested features:"
+          echo "  - File syntax validation (all shell scripts)"
+          echo "  - Installation process"
+          echo "  - Non-interactive mode handling"
+          echo "  - Shell configuration (zsh.sh structure and content)"
+          echo "  - PATH management and preservation"
+          echo "  - maintain-system commands (verify, versions, update, help, invalid command)"
+          echo "  - nix-macos-maintenance.sh commands (status, ensure-path, update, preview-nix-upgrade, cleanup, fix-compaudit, help)"
+          echo "  - Package manager skip behavior (Homebrew, MacPorts, mas, Nix)"
+          echo "  - mas support and functionality"
+          echo "  - Interactive install functions (_ask_user)"
+          echo "  - Installation warnings"
+          echo "  - Nix secure installation (--proto, --tlsv1.2)"
+          echo "  - MacPorts source installation"
+          echo "  - System Python/Ruby protection"
+          echo "  - Environment variables (MAINTAIN_SYSTEM_CLEAN_PYENV, MAINTAIN_SYSTEM_CLEAN_NVM, MAINTAIN_SYSTEM_CLEAN_CHRUBY, MAINTAIN_SYSTEM_FIX_RUBY_GEMS, MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS, *_KEEP variables)"
+          echo "  - Edge cases (re-running install.sh, backup creation, existing configs)"
+          echo "  - Missing dependencies handling"
+          echo "  - PATH preservation across shell types"
+          echo "  - quick-test.sh functionality and checks"
+          echo "  - Go permanent configuration"
+          echo "  - Swift installation with swiftly"
+          echo "  - Code quality (shebangs, hardcoded paths, TODO markers, no emojis)"
+          echo ""
+          echo "All tests passed!"

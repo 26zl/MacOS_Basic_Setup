@@ -78,6 +78,34 @@ _is_disabled() {
   return 1
 }
 
+# Ask user for confirmation (non-interactive mode support)
+_ask_user() {
+  local prompt="$1"
+  local default="${2:-N}"
+  
+  # Skip prompts in non-interactive mode
+  if [[ -n "${NONINTERACTIVE:-}" ]] || [[ -n "${CI:-}" ]]; then
+    return 1
+  fi
+  
+  echo -n "$prompt "
+  if [[ "$default" == "Y" ]]; then
+    echo -n "[Y/n]: "
+  else
+    echo -n "[y/N]: "
+  fi
+  
+  read -r response
+  if [[ -z "$response" ]]; then
+    response="$default"
+  fi
+  
+  case "$response" in
+    [Yy]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Check if Python is system Python (should not be modified)
 _is_system_python() {
   local python_path="$1"
@@ -612,12 +640,14 @@ _chruby_latest_available() {
 }
 
 _chruby_latest_installed() {
-  command -v chruby >/dev/null 2>&1 || return 1
+  # chruby is a shell function, check with type
+  type chruby >/dev/null 2>&1 || return 1
   chruby 2>/dev/null | sed -E 's/^[* ]+//' | grep -E '^ruby-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1
 }
 
 _chruby_install_latest() {
-  command -v chruby >/dev/null 2>&1 || return 1
+  # chruby is a shell function, check with type
+  type chruby >/dev/null 2>&1 || return 1
   command -v ruby-install >/dev/null 2>&1 || return 1
   local latest
   latest="$(_chruby_latest_available)"
@@ -906,22 +936,10 @@ update() {
     return 1
   fi
 
-  # Auto-install Homebrew if missing
+  # Check for Homebrew - skip if missing (install via install.sh)
   if ! command -v brew >/dev/null 2>&1; then
-    echo "${GREEN}[Homebrew]${NC} Not found, attempting to install..."
-    if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >/dev/null 2>&1; then
-      # Add Homebrew to PATH for this session
-      if [[ -d /opt/homebrew ]]; then
-        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
-      elif [[ -d /usr/local/Homebrew ]]; then
-        export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
-      fi
-      hash -r 2>/dev/null || true
-      echo "  SUCCESS: Homebrew installed"
-    else
-      echo "  ${RED}WARNING:${NC} Homebrew installation failed, skipping Homebrew updates"
-      return 0
-    fi
+    echo "${GREEN}[Homebrew]${NC} Not found - skipping"
+    echo "  ${BLUE}INFO:${NC} To install Homebrew, run: ./install.sh"
   fi
   
   if command -v brew >/dev/null 2>&1; then
@@ -984,6 +1002,12 @@ update() {
     fi
   fi
 
+  # Check for MacPorts - skip if missing (install via install.sh)
+  if ! command -v port >/dev/null 2>&1; then
+    echo "${GREEN}[MacPorts]${NC} Not found - skipping"
+    echo "  ${BLUE}INFO:${NC} To install MacPorts, run: ./install.sh"
+  fi
+  
   if command -v port >/dev/null 2>&1; then
     echo "${GREEN}[MacPorts]${NC} sudo required; you may be prompted..."
     local port_errors=()
@@ -1101,8 +1125,19 @@ update() {
         echo "WARNING: Some packages may be broken by Python upgrade!"
         echo "   This may affect global pip packages and pipx packages."
         echo ""
-        read -q "? Do you want to continue with Python upgrade? (y/N): " && echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        # Skip prompt in non-interactive mode
+        local should_upgrade=false
+        if [[ -n "${NONINTERACTIVE:-}" ]] || [[ -n "${CI:-}" ]]; then
+          echo "  ${BLUE}INFO:${NC} Non-interactive mode: skipping Python upgrade (incompatible packages detected)"
+          should_upgrade=false
+        else
+          read -q "? Do you want to continue with Python upgrade? (y/N): " && echo
+          if [[ $REPLY =~ ^[Yy]$ ]]; then
+            should_upgrade=true
+          fi
+        fi
+        
+        if [[ "$should_upgrade" == "true" ]]; then
           echo "${GREEN}[pyenv]${NC} Continuing with Python upgrade..."
           if pyenv_target="$(_pyenv_activate_latest "$latest_available")"; then
             echo "${GREEN}[pyenv]${NC} Using $pyenv_target"
@@ -1530,7 +1565,19 @@ update() {
   fi
 
   echo "${GREEN}[Node]${NC} Ensuring latest LTS..."
-  if command -v nvm >/dev/null 2>&1; then
+  # nvm is a shell function, not a command - check if it's available
+  local nvm_available=false
+  if type nvm >/dev/null 2>&1 || [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+    # Source nvm if not already loaded
+    if ! type nvm >/dev/null 2>&1; then
+      [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]] && source "${NVM_DIR:-$HOME/.nvm}/nvm.sh" 2>/dev/null || true
+    fi
+    if type nvm >/dev/null 2>&1; then
+      nvm_available=true
+    fi
+  fi
+  
+  if [[ "$nvm_available" == "true" ]]; then
     local prev_nvm="$(nvm current 2>/dev/null || true)"
     nvm install --lts --latest-npm || true
     nvm alias default 'lts/*' || true
@@ -1574,7 +1621,7 @@ update() {
         done < <(nvm ls --no-colors --no-alias 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sort -u)
       fi
     fi
-  elif command -v brew >/dev/null 2>&1 && brew list node >/dev/null 2>&1; then
+  elif [[ "$nvm_available" != "true" ]] && command -v brew >/dev/null 2>&1 && brew list node >/dev/null 2>&1; then
     brew upgrade node || true
   fi
   
@@ -1660,7 +1707,27 @@ update() {
     fi
   fi
   
-  if command -v chruby >/dev/null 2>&1; then
+  # chruby is a shell function, not a command - check if it's available
+  local chruby_available=false
+  if type chruby >/dev/null 2>&1; then
+    chruby_available=true
+  elif [[ -f /usr/local/share/chruby/chruby.sh ]] || [[ -f "$HOME/.local/share/chruby/chruby.sh" ]]; then
+    # Try to source chruby if available but not loaded
+    if [[ -f /usr/local/share/chruby/chruby.sh ]]; then
+      source /usr/local/share/chruby/chruby.sh 2>/dev/null && chruby_available=true || true
+    elif [[ -f "$HOME/.local/share/chruby/chruby.sh" ]]; then
+      source "$HOME/.local/share/chruby/chruby.sh" 2>/dev/null && chruby_available=true || true
+    fi
+    # Also check Homebrew location
+    if [[ "$chruby_available" != "true" ]] && command -v brew >/dev/null 2>&1; then
+      local chruby_path="$(brew --prefix chruby 2>/dev/null || echo "")"
+      if [[ -n "$chruby_path" && -f "$chruby_path/share/chruby/chruby.sh" ]]; then
+        source "$chruby_path/share/chruby/chruby.sh" 2>/dev/null && chruby_available=true || true
+      fi
+    fi
+  fi
+  
+  if [[ "$chruby_available" == "true" ]]; then
     echo "${GREEN}[chruby]${NC} Ensuring latest Ruby is active..."
     if chruby_target="$(_chruby_install_latest 2>/dev/null)"; then
       echo "${GREEN}[chruby]${NC} Installed and activated: $chruby_target"
@@ -1692,7 +1759,7 @@ update() {
     fi
   fi
   
-  if command -v chruby >/dev/null 2>&1 && [[ -n "$chruby_target" ]]; then
+  if [[ "$chruby_available" == "true" ]] && [[ -n "$chruby_target" ]]; then
     local rubies_root="$HOME/.rubies"
     if [[ -d "$rubies_root" ]]; then
       if _is_disabled "${MAINTAIN_SYSTEM_CLEAN_CHRUBY:-}"; then
@@ -1952,6 +2019,66 @@ update() {
     _cargo_update_packages || true
   fi
 
+  # Check for mas - skip if missing (install via install.sh)
+  if ! command -v mas >/dev/null 2>&1; then
+    echo "${GREEN}[mas]${NC} Not found - skipping"
+    echo "  ${BLUE}INFO:${NC} To install mas, run: ./install.sh"
+  fi
+  
+  # mas (Mac App Store CLI) - update App Store apps
+  if command -v mas >/dev/null 2>&1; then
+    echo "${GREEN}[mas]${NC} Updating Mac App Store apps..."
+    local mas_errors=()
+    
+    # Check for outdated apps
+    local outdated_output
+    outdated_output=$(mas outdated 2>&1 || echo "FAILED")
+    
+    if [[ "$outdated_output" == "FAILED" ]] || [[ "$outdated_output" == *"Error"* ]]; then
+      mas_errors+=("check")
+      echo "  ${RED}WARNING:${NC} Failed to check for App Store updates"
+      echo "  ${BLUE}INFO:${NC} Make sure you're signed in to App Store: open -a 'App Store'"
+    elif [[ -z "$outdated_output" ]] || echo "$outdated_output" | grep -qiE "(All.*up to date|Nothing to update)"; then
+      echo "  ${BLUE}INFO:${NC} All App Store apps are up to date"
+    else
+      # Count outdated apps
+      local outdated_count
+      outdated_count=$(echo "$outdated_output" | grep -cE "^[0-9]+" || echo "0")
+      
+      if [[ "$outdated_count" -gt 0 ]]; then
+        echo "  Found $outdated_count outdated app(s):"
+        echo "$outdated_output" | head -5
+        [[ "$outdated_count" -gt 5 ]] && echo "  ... and $((outdated_count - 5)) more"
+        
+        echo "  Updating apps..."
+        local mas_update_output
+        # mas should run without sudo to use per-user App Store authentication
+        # Try both upgrade and update commands
+        mas_update_output=$(mas upgrade 2>&1 || mas update 2>&1 || echo "FAILED")
+        
+        if [[ "$mas_update_output" == "FAILED" ]] || [[ "$mas_update_output" == *"Error"* ]]; then
+          mas_errors+=("update")
+          echo "  ${RED}WARNING:${NC} Failed to update App Store apps"
+          echo "  ${BLUE}INFO:${NC} You may need to sign in to App Store or enter your password"
+        elif echo "$mas_update_output" | grep -qiE "(Upgrading|Downloading|Installed)"; then
+          echo "  SUCCESS: App Store apps updated"
+        else
+          echo "  ${BLUE}INFO:${NC} App Store apps checked (may require manual update)"
+        fi
+      fi
+    fi
+    
+    if [[ ${#mas_errors[@]} -gt 0 ]]; then
+      echo "  mas issues: ${mas_errors[*]}"
+    fi
+  fi
+
+  # Check for Nix - skip if missing (install via install.sh)
+  if ! command -v nix >/dev/null 2>&1 && ! [[ -d /nix ]] && ! [[ -f /nix/var/nix/profiles/default/bin/nix ]]; then
+    echo "${GREEN}[Nix]${NC} Not found - skipping"
+    echo "  ${BLUE}INFO:${NC} To install Nix, run: ./install.sh"
+  fi
+  
   # Nix - integrated update with smart preview and cleanup
   if command -v nix >/dev/null 2>&1; then
     echo "${GREEN}[Nix]${NC} Updating packages..."
@@ -2114,16 +2241,27 @@ verify() {
   if command -v ruby >/dev/null 2>&1; then
     ok "Ruby" "$(ruby -v)"
     command -v gem >/dev/null 2>&1 && ok "Gem" "$(gem -v)"
-    if command -v chruby >/dev/null 2>&1; then
-      local chruby_version="$(chruby --version 2>/dev/null | head -n1)"
-      if [[ -n "$chruby_version" ]]; then
-        ok "chruby" "$chruby_version"
-      else
-        ok "chruby" "installed"
+    if type chruby >/dev/null 2>&1; then
+      # Source chruby if needed
+      if ! type chruby >/dev/null 2>&1; then
+        [[ -f /usr/local/share/chruby/chruby.sh ]] && source /usr/local/share/chruby/chruby.sh 2>/dev/null || true
+        [[ -f "$HOME/.local/share/chruby/chruby.sh" ]] && source "$HOME/.local/share/chruby/chruby.sh" 2>/dev/null || true
+        if command -v brew >/dev/null 2>&1; then
+          local chruby_path="$(brew --prefix chruby 2>/dev/null || echo "")"
+          [[ -n "$chruby_path" && -f "$chruby_path/share/chruby/chruby.sh" ]] && source "$chruby_path/share/chruby/chruby.sh" 2>/dev/null || true
+        fi
+      fi
+      if type chruby >/dev/null 2>&1; then
+        local chruby_version="$(chruby --version 2>/dev/null | head -n1)"
+        if [[ -n "$chruby_version" ]]; then
+          ok "chruby" "$chruby_version"
+        else
+          ok "chruby" "installed"
+        fi
       fi
     fi
   else
-    if command -v chruby >/dev/null 2>&1; then
+    if type chruby >/dev/null 2>&1 || [[ -f /usr/local/share/chruby/chruby.sh ]] || [[ -f "$HOME/.local/share/chruby/chruby.sh" ]]; then
       warn "Ruby" "not installed (run 'update' to install)"
     else
       miss "Ruby"
@@ -2199,13 +2337,20 @@ verify() {
   if command -v node >/dev/null 2>&1; then
     ok "Node" "$(node -v)"
     command -v npm >/dev/null 2>&1 && ok "npm" "$(npm -v)" || warn "npm" "not in PATH"
-    if command -v nvm >/dev/null 2>&1; then
-      local current="$(nvm current 2>/dev/null || true)"
-      local defv="$(nvm version default 2>/dev/null || true)"
-      [[ -n "$defv" && "$current" == "$defv" ]] && ok "nvm" "current $current" || warn "nvm" "current ${current:-N/A}; default ${defv:-N/A}"
+    # nvm is a shell function, check with type
+    if type nvm >/dev/null 2>&1 || [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+      # Source nvm if needed
+      if ! type nvm >/dev/null 2>&1; then
+        [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]] && source "${NVM_DIR:-$HOME/.nvm}/nvm.sh" 2>/dev/null || true
+      fi
+      if type nvm >/dev/null 2>&1; then
+        local current="$(nvm current 2>/dev/null || true)"
+        local defv="$(nvm version default 2>/dev/null || true)"
+        [[ -n "$defv" && "$current" == "$defv" ]] && ok "nvm" "current $current" || warn "nvm" "current ${current:-N/A}; default ${defv:-N/A}"
+      fi
     fi
   else
-    if command -v nvm >/dev/null 2>&1; then
+    if type nvm >/dev/null 2>&1 || [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
       warn "Node" "not installed (run 'update' to install)"
     else
       miss "Node"
@@ -2331,6 +2476,20 @@ verify() {
     warn "MacPorts" "not installed"
   fi
   
+  # mas (Mac App Store CLI)
+  if command -v mas >/dev/null 2>&1; then
+    local mas_version="$(mas version 2>/dev/null || echo "installed")"
+    local mas_app_count
+    mas_app_count=$(mas list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    if [[ "$mas_app_count" -gt 0 ]]; then
+      ok "mas" "$mas_version ($mas_app_count App Store apps)"
+    else
+      ok "mas" "$mas_version (no App Store apps installed)"
+    fi
+  else
+    miss "mas"
+  fi
+  
   # Nix - comprehensive status check
   if command -v nix >/dev/null 2>&1; then
     local nix_version="$(nix --version 2>/dev/null | head -n1 | sed 's/nix (Nix) //' || echo "unknown")"
@@ -2392,7 +2551,21 @@ versions() {
   echo "${GREEN}================== TOOL VERSIONS ==================${NC}"
   command -v ruby >/dev/null 2>&1 && echo "Ruby ........... $(ruby -v)" || echo "Ruby ........... not installed"
   command -v gem  >/dev/null 2>&1 && echo "Gem ............ $(gem -v)" || true
-  if command -v chruby >/dev/null 2>&1; then
+  # Check for chruby (shell function)
+  local chruby_check=false
+  if type chruby >/dev/null 2>&1; then
+    chruby_check=true
+  elif [[ -f /usr/local/share/chruby/chruby.sh ]] || [[ -f "$HOME/.local/share/chruby/chruby.sh" ]]; then
+    # Try to source chruby
+    [[ -f /usr/local/share/chruby/chruby.sh ]] && source /usr/local/share/chruby/chruby.sh 2>/dev/null && chruby_check=true || true
+    [[ "$chruby_check" != "true" && -f "$HOME/.local/share/chruby/chruby.sh" ]] && source "$HOME/.local/share/chruby/chruby.sh" 2>/dev/null && chruby_check=true || true
+    if [[ "$chruby_check" != "true" ]] && command -v brew >/dev/null 2>&1; then
+      local chruby_path="$(brew --prefix chruby 2>/dev/null || echo "")"
+      [[ -n "$chruby_path" && -f "$chruby_path/share/chruby/chruby.sh" ]] && source "$chruby_path/share/chruby/chruby.sh" 2>/dev/null && chruby_check=true || true
+    fi
+  fi
+  
+  if [[ "$chruby_check" == "true" ]]; then
     local chruby_version="$(chruby --version 2>/dev/null | head -n1)"
     if [[ -n "$chruby_version" ]]; then
       echo "chruby ......... $chruby_version"
@@ -2477,7 +2650,16 @@ versions() {
       local npm_count="$(npm list -g --depth=0 2>/dev/null | tail -n +2 | wc -l | tr -d ' ' || echo "0")"
       echo "npm ............ $npm_version ($npm_count global packages)"
     fi
-    command -v nvm >/dev/null 2>&1 && echo "nvm ............ $(nvm current 2>/dev/null)" || true
+    # nvm is a shell function, check with type
+    if type nvm >/dev/null 2>&1 || [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+      # Source nvm if needed
+      if ! type nvm >/dev/null 2>&1; then
+        [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]] && source "${NVM_DIR:-$HOME/.nvm}/nvm.sh" 2>/dev/null || true
+      fi
+      if type nvm >/dev/null 2>&1; then
+        echo "nvm ............ $(nvm current 2>/dev/null || echo "not active")"
+      fi
+    fi
   else
     echo "Node.js ........ not installed"
   fi
@@ -2589,6 +2771,20 @@ versions() {
     echo "MacPorts ....... $port_version ($port_count ports)"
   else
     echo "MacPorts ....... not installed"
+  fi
+  
+  # mas (Mac App Store CLI)
+  if command -v mas >/dev/null 2>&1; then
+    local mas_version="$(mas version 2>/dev/null || echo "installed")"
+    local mas_app_count
+    mas_app_count=$(mas list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+    if [[ "$mas_app_count" -gt 0 ]]; then
+      echo "mas ............. $mas_version ($mas_app_count App Store apps)"
+    else
+      echo "mas ............. $mas_version (no App Store apps)"
+    fi
+  else
+    echo "mas ............. not installed"
   fi
   
   # Nix
