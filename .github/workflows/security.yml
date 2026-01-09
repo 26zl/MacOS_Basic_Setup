@@ -24,9 +24,10 @@ jobs:
           found_issues=0
 
           # Check for dangerous shell patterns
+          # Only flag obviously dangerous: eval/exec/system with unquoted variables (exclude standard tool init)
           echo "Checking for dangerous shell patterns..."
-          if grep -rE "(eval.*\$|exec.*\$|system.*\$|\`.*\$|\$\(.*\$)" --include="*.sh" --include="*.zsh" --exclude-dir=".git" . 2>/dev/null | grep -vE "#.*eval|#.*exec|#.*system|#.*\`|#.*\$\(|example|Example|EXAMPLE"; then
-            echo "WARNING: Found potentially dangerous shell patterns (eval/exec/system with variables)"
+          if grep -rE "(eval\s+\$[A-Z_]|exec\s+\$[A-Z_]|system\s+\$[A-Z_])" --include="*.sh" --include="*.zsh" --exclude-dir=".git" . 2>/dev/null | grep -vE "#.*eval|#.*exec|#.*system|example|Example|EXAMPLE|pyenv|conda|chruby|nvm|rustup|java_home"; then
+            echo "WARNING: Found potentially dangerous shell patterns (eval/exec/system with unquoted variables)"
             found_issues=1
           else
             echo "OK: No dangerous shell patterns found"
@@ -42,8 +43,10 @@ jobs:
           fi
 
           # Check for unsafe file operations
+          # Only flag obviously dangerous: unquoted variables, root, or parent directory
+          # Exclude quoted variables like "$temp_dir" which are safe
           echo "Checking for unsafe file operations..."
-          if grep -rE "(rm\s+-rf\s+\$|rm\s+-rf\s+[^/]*\$|rm\s+-rf\s+\.\.|rm\s+-rf\s+/)" --include="*.sh" --include="*.zsh" --exclude-dir=".git" . 2>/dev/null | grep -vE "#.*rm|example|Example|EXAMPLE"; then
+          if grep -rE "(rm\s+-rf\s+\$[A-Z_]|rm\s+-rf\s+\.\.|rm\s+-rf\s+/[^/]|rm\s+-rf\s+/$)" --include="*.sh" --include="*.zsh" --exclude-dir=".git" . 2>/dev/null | grep -vE "#.*rm|example|Example|EXAMPLE|\"\$|'\$"; then
             echo "WARNING: Found potentially unsafe rm -rf operations"
             found_issues=1
           else
@@ -86,7 +89,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'

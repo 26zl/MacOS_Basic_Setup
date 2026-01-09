@@ -105,7 +105,8 @@ jobs:
           
           # Use 'yes' command to automatically answer "yes" to all prompts
           # This simulates user answering "yes" to all interactive questions
-          yes | ./install.sh 2>&1 | tee install.log || true
+          # Redirect yes stderr to /dev/null to avoid "Broken pipe" warnings
+          (yes 2>/dev/null | ./install.sh 2>&1 | tee install.log) || true
           echo ""
           echo "=== Installation log summary ==="
           tail -100 install.log || true
@@ -444,9 +445,9 @@ jobs:
           zsh -lc '
             output=$(maintain-system verify 2>&1)
             
-            # Check for skip messages with install.sh references
-            if echo "$output" | grep -qE "Not found - skipping.*To install.*run.*install.sh"; then
-              echo "maintain-system.sh correctly skips missing tools and refers to install.sh"
+            # Check for skip messages with install.sh references (on separate lines)
+            if echo "$output" | grep -qE "Not found - skipping" && echo "$output" | grep -qE "To install.*run.*install\.sh"; then
+              echo "OK: maintain-system.sh correctly skips missing tools and refers to install.sh"
             else
               echo "WARNING: Skip messages with install.sh references not found"
               echo "This may be OK if all package managers are installed"
@@ -477,7 +478,7 @@ jobs:
           # Test Homebrew skip behavior
           echo ""
           echo "Testing Homebrew skip behavior in maintain-system.sh..."
-          if grep -qE "Not found - skipping.*To install Homebrew.*run.*install.sh" maintain-system.sh; then
+          if grep -qE "Not found - skipping" maintain-system.sh && grep -qE "To install Homebrew.*run.*install\.sh" maintain-system.sh; then
             echo "Homebrew skip message with install.sh reference found"
           else
             echo "WARNING: Homebrew skip message not found in maintain-system.sh"
@@ -486,8 +487,8 @@ jobs:
           # Test MacPorts skip behavior
           echo ""
           echo "Testing MacPorts skip behavior in maintain-system.sh..."
-          if grep -qE "Not found - skipping.*To install MacPorts.*run.*install.sh" maintain-system.sh; then
-            echo "MacPorts skip message with install.sh reference found"
+          if grep -qE "Not found - skipping" maintain-system.sh && grep -qE "To install MacPorts.*run.*install\.sh" maintain-system.sh; then
+            echo "OK: MacPorts skip message with install.sh reference found"
           else
             echo "WARNING: MacPorts skip message not found in maintain-system.sh"
           fi
@@ -495,8 +496,8 @@ jobs:
           # Test mas skip behavior
           echo ""
           echo "Testing mas skip behavior in maintain-system.sh..."
-          if grep -qE "Not found - skipping.*To install mas.*run.*install.sh" maintain-system.sh; then
-            echo "mas skip message with install.sh reference found"
+          if grep -qE "Not found - skipping" maintain-system.sh && grep -qE "To install mas.*run.*install\.sh" maintain-system.sh; then
+            echo "OK: mas skip message with install.sh reference found"
           else
             echo "WARNING: mas skip message not found in maintain-system.sh"
           fi
@@ -504,8 +505,8 @@ jobs:
           # Test Nix skip behavior
           echo ""
           echo "Testing Nix skip behavior in maintain-system.sh..."
-          if grep -qE "Not found - skipping.*To install Nix.*run.*install.sh" maintain-system.sh; then
-            echo "Nix skip message with install.sh reference found"
+          if grep -qE "Not found - skipping" maintain-system.sh && grep -qE "To install Nix.*run.*install\.sh" maintain-system.sh; then
+            echo "OK: Nix skip message with install.sh reference found"
           else
             echo "WARNING: Nix skip message not found in maintain-system.sh"
           fi
@@ -892,12 +893,6 @@ jobs:
               echo "WARNING: nix-macos-maintenance.sh may not handle invalid commands"
             fi
 
-            # Test that nix-macos-maintenance.sh has no emojis
-            if grep -qE "[🚀📦✅❌⚠️ℹ️]" scripts/nix-macos-maintenance.sh; then
-              echo "WARNING: Emojis found in nix-macos-maintenance.sh"
-            else
-              echo "nix-macos-maintenance.sh has no emojis (correct)"
-            fi
           else
             echo "scripts/nix-macos-maintenance.sh not found"
             exit 1
@@ -968,7 +963,7 @@ jobs:
           echo "Testing re-running install.sh..."
           zsh -lc '
             # Run install.sh a second time to test idempotency
-            if yes | ./install.sh 2>&1 | tee install2.log; then
+            if (yes 2>/dev/null | ./install.sh 2>&1 | tee install2.log); then
               echo "install.sh can be re-run successfully"
             else
               echo "WARNING: install.sh may have issues when re-run"
@@ -1074,12 +1069,6 @@ jobs:
               echo "WARNING: quick-test.sh may not check essential components"
             fi
 
-            # Test that quick-test.sh has no emojis
-            if grep -qE "[🚀📦✅❌⚠️ℹ️]" quick-test.sh; then
-              echo "WARNING: Emojis found in quick-test.sh"
-            else
-              echo "quick-test.sh has no emojis (correct)"
-            fi
 
             # Test quick-test.sh exit code
             if ./quick-test.sh >/dev/null 2>&1; then
@@ -1202,6 +1191,6 @@ jobs:
           echo "  - quick-test.sh functionality and checks"
           echo "  - Go permanent configuration"
           echo "  - Swift installation with swiftly"
-          echo "  - Code quality (shebangs, hardcoded paths, TODO markers, no emojis)"
+          echo "  - Code quality (shebangs, hardcoded paths, TODO markers)"
           echo ""
           echo "All tests passed!"

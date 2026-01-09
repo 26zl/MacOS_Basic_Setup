@@ -91,12 +91,20 @@ _detect_repo_root() {
   # Method 3: Search from current directory up for maintain-system.sh
   if [[ -z "$repo_root" ]] || [[ ! -f "$repo_root/maintain-system.sh" ]]; then
     local search_dir="$(pwd)"
-    while [[ "$search_dir" != "/" ]]; do
+    local max_iterations=50
+    local iteration=0
+    while [[ "$search_dir" != "/" ]] && [[ $iteration -lt $max_iterations ]]; do
       if [[ -f "$search_dir/maintain-system.sh" ]]; then
         repo_root="$search_dir"
         break
       fi
-      search_dir="$(dirname "$search_dir")"
+      local parent_dir="$(dirname "$search_dir")"
+      # Safety check: if parent_dir is same as search_dir, we're stuck
+      if [[ "$parent_dir" == "$search_dir" ]]; then
+        break
+      fi
+      search_dir="$parent_dir"
+      ((iteration++))
     done
   fi
   

@@ -12,46 +12,46 @@ test_failed=0
 echo "${GREEN}=== Quick Test ===${NC}"
 echo "1. Testing syntax..."
 if zsh -n install.sh; then
-  echo "✅ install.sh OK"
+  echo "OK: install.sh syntax valid"
 else
-  echo "❌ install.sh FAILED"
+  echo "FAIL: install.sh syntax error"
   test_failed=1
 fi
 
 if zsh -n zsh.sh; then
-  echo "✅ zsh.sh OK"
+  echo "OK: zsh.sh syntax valid"
 else
-  echo "❌ zsh.sh FAILED"
+  echo "FAIL: zsh.sh syntax error"
   test_failed=1
 fi
 
 if zsh -n maintain-system.sh; then
-  echo "✅ maintain-system.sh OK"
+  echo "OK: maintain-system.sh syntax valid"
 else
-  echo "❌ maintain-system.sh FAILED"
+  echo "FAIL: maintain-system.sh syntax error"
   test_failed=1
 fi
 
 echo ""
 echo "2. Testing file existence..."
 if [[ -f install.sh ]]; then
-  echo "✅ install.sh exists"
+  echo "OK: install.sh exists"
 else
-  echo "❌ install.sh missing"
+  echo "FAIL: install.sh missing"
   test_failed=1
 fi
 
 if [[ -f zsh.sh ]]; then
-  echo "✅ zsh.sh exists"
+  echo "OK: zsh.sh exists"
 else
-  echo "❌ zsh.sh missing"
+  echo "FAIL: zsh.sh missing"
   test_failed=1
 fi
 
 if [[ -f maintain-system.sh ]]; then
-  echo "✅ maintain-system.sh exists"
+  echo "OK: maintain-system.sh exists"
 else
-  echo "❌ maintain-system.sh missing"
+  echo "FAIL: maintain-system.sh missing"
   test_failed=1
 fi
 
@@ -77,13 +77,13 @@ get_maintain_system_path() {
 maintain_system_path="$(get_maintain_system_path || true)"
 if [[ -n "$maintain_system_path" ]]; then
   if "$maintain_system_path" versions > /dev/null 2>&1; then
-    echo "✅ maintain-system works ($maintain_system_path)"
+    echo "OK: maintain-system works ($maintain_system_path)"
   else
-    echo "❌ maintain-system failed ($maintain_system_path)"
+    echo "FAIL: maintain-system failed ($maintain_system_path)"
     test_failed=1
   fi
 else
-  echo "⚠️  maintain-system not installed (run ./install.sh first)"
+  echo "WARNING: maintain-system not installed (run ./install.sh first)"
   # This is a warning, not a failure, so don't set test_failed
 fi
 
@@ -111,37 +111,37 @@ if [[ -n "$maintain_system_path" ]]; then
   if "$maintain_system_path" update > /dev/null 2>&1; then
     # Check that project files were not modified
     if [[ -f Gemfile.lock ]] && [[ "$(cat Gemfile.lock)" == "test (1.0.0)" ]]; then
-      echo "✅ Gemfile.lock not modified"
+      echo "OK: Gemfile.lock not modified"
     else
-      echo "❌ Gemfile.lock was modified"
+      echo "FAIL: Gemfile.lock was modified"
       test_failed=1
     fi
     
     if [[ -f package-lock.json ]] && [[ "$(cat package-lock.json)" == "package-lock.json content" ]]; then
-      echo "✅ package-lock.json not modified"
+      echo "OK: package-lock.json not modified"
     else
-      echo "❌ package-lock.json was modified"
+      echo "FAIL: package-lock.json was modified"
       test_failed=1
     fi
     
     if [[ -f go.mod ]] && [[ "$(cat go.mod)" == "module test" ]]; then
-      echo "✅ go.mod not modified"
+      echo "OK: go.mod not modified"
     else
-      echo "❌ go.mod was modified"
+      echo "FAIL: go.mod was modified"
       test_failed=1
     fi
     
     if [[ -f requirements.lock ]] && [[ "$(cat requirements.lock)" == "test==1.0.0" ]]; then
-      echo "✅ requirements.lock not modified"
+      echo "OK: requirements.lock not modified"
     else
-      echo "❌ requirements.lock was modified"
+      echo "FAIL: requirements.lock was modified"
       test_failed=1
     fi
   else
-    echo "⚠️  Could not test project file protection (update command may have failed)"
+    echo "WARNING: Could not test project file protection (update command may have failed)"
   fi
 else
-  echo "⚠️  maintain-system not available - skipping project file protection test"
+  echo "WARNING: maintain-system not available - skipping project file protection test"
 fi
 
 # Cleanup
