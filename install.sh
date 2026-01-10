@@ -2,8 +2,7 @@
 
 # macOS Development Environment Setup - Installation Script
 
-# Don't exit on error - continue even if some optional components fail
-set +e
+set +e  # Allow optional components to fail (will be set per function)
 
 echo "🚀 macOS Development Environment Setup - Installation"
 echo "======================================================"
@@ -22,14 +21,21 @@ warn() {
   echo "${YELLOW}⚠️  $1${NC}"
 }
 
-# Ask user for confirmation
+# Ask user for confirmation with input validation
 _ask_user() {
   local prompt="$1"
   local default="${2:-N}"
   
+  # Validate inputs
+  [[ -z "$prompt" ]] && { echo "${RED}Error: _ask_user called without prompt${NC}" >&2; return 1; }
+  [[ "$default" != "Y" && "$default" != "N" ]] && default="N"
+  
   # In CI/non-interactive mode, automatically answer "yes" to all prompts
   # This simulates a user answering "yes" to everything
-  if [[ -n "${NONINTERACTIVE:-}" ]] || [[ -n "${CI:-}" ]]; then
+  # Allow FORCE_INTERACTIVE=1 to run real prompts in CI (e.g., yes-piped tests)
+  if [[ -n "${FORCE_INTERACTIVE:-}" ]]; then
+    : # Proceed to prompt
+  elif [[ -n "${NONINTERACTIVE:-}" ]] || [[ -n "${CI:-}" ]]; then
     echo "$prompt [Auto: yes]"
     return 0
   fi
@@ -41,13 +47,26 @@ _ask_user() {
     echo -n "[y/N]: "
   fi
   
-  read -r response
+  # Read input with validation
+  local response=""
+  IFS= read -r response || return 1
+  
+  # Sanitize input: remove leading/trailing whitespace, limit length
+  response=$(echo "$response" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  [[ ${#response} -gt 10 ]] && response="${response:0:10}"  # Limit to 10 chars
+  
+  # Validate: only allow y, Y, n, N, yes, Yes, YES, no, No, NO, or empty
+  if [[ -n "$response" ]] && [[ ! "$response" =~ ^[YyNn]$ ]] && [[ ! "$response" =~ ^[Yy][Ee][Ss]$ ]] && [[ ! "$response" =~ ^[Nn][Oo]$ ]]; then
+    echo "${RED}Invalid input. Please enter y/n/yes/no or press Enter for default.${NC}" >&2
+    return 1
+  fi
+  
   if [[ -z "$response" ]]; then
     response="$default"
   fi
   
   case "$response" in
-    [Yy]*) return 0 ;;
+    [Yy]|[Yy][Ee][Ss]) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -158,31 +177,28 @@ install_xcode_clt() {
 # Function to install Homebrew if not present
 install_homebrew() {
   if [[ -z "$HOMEBREW_PREFIX" ]]; then
-    if _ask_user "${YELLOW}📦 Homebrew not found. Install Homebrew?" "Y"; then
+    echo ""
+    echo "${YELLOW}⚠️  IMPORTANT: Homebrew is required for this setup${NC}"
+    echo "  ${BLUE}INFO:${NC} The installer may prompt you for:"
+    echo "    - Your password (for sudo)"
+    echo "    - Confirmation to install Xcode Command Line Tools (if not installed)"
+    echo "    - Additional setup steps"
+    echo ""
+    echo "  ${BLUE}INFO:${NC} Please read all messages from the installer and follow instructions"
+    echo "  ${BLUE}INFO:${NC} The installation process will be shown below:"
+    echo ""
+    echo "  Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    HOMEBREW_PREFIX="$(_detect_brew_prefix)"
+    if [[ -n "$HOMEBREW_PREFIX" ]]; then
       echo ""
-      echo "${YELLOW}⚠️  IMPORTANT: Please follow the Homebrew installation carefully${NC}"
-      echo "  ${BLUE}INFO:${NC} The installer may prompt you for:"
-      echo "    - Your password (for sudo)"
-      echo "    - Confirmation to install Xcode Command Line Tools (if not installed)"
-      echo "    - Additional setup steps"
-      echo ""
-      echo "  ${BLUE}INFO:${NC} Please read all messages from the installer and follow instructions"
-      echo "  ${BLUE}INFO:${NC} The installation process will be shown below:"
-      echo ""
-      echo "  Installing Homebrew..."
-      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-      HOMEBREW_PREFIX="$(_detect_brew_prefix)"
-      if [[ -n "$HOMEBREW_PREFIX" ]]; then
-        echo ""
-        echo "${GREEN}✅ Homebrew installed successfully${NC}"
-      else
-        echo ""
-        echo "${RED}❌ Failed to install Homebrew${NC}"
-        exit 1
-      fi
+      echo "${GREEN}✅ Homebrew installed successfully${NC}"
     else
-      echo "${YELLOW}⚠️  Skipping Homebrew installation${NC}"
-      echo "  ${BLUE}INFO:${NC} You can install it later by running: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+      echo ""
+      echo "${RED}❌ Failed to install Homebrew${NC}"
+      echo "  ${RED}ERROR:${NC} Homebrew is required for this setup. Please install it manually:"
+      echo "  ${BLUE}INFO:${NC} /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+      exit 1
     fi
   else
     echo "${GREEN}✅ Homebrew found at: $HOMEBREW_PREFIX${NC}"
@@ -193,7 +209,7 @@ install_homebrew() {
 install_oh_my_zsh() {
   if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
     echo "${YELLOW}📦 Installing Oh My Zsh...${NC}"
-    if sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended; then
+    if sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended --keep-zshrc; then
       echo "${GREEN}✅ Oh My Zsh installed${NC}"
     else
       warn "Oh My Zsh installation failed"
@@ -349,24 +365,26 @@ install_macports() {
       local macports_tarball="MacPorts-${macports_version}.tar.bz2"
       local macports_url="https://distfiles.macports.org/MacPorts/${macports_tarball}"
       local temp_dir=$(mktemp -d)
+      local original_dir="$(pwd)"  # Save original directory safely
       
       echo "  Installing MacPorts ${macports_version} from source..."
       echo "  Downloading ${macports_tarball}..."
       
-      cd "$temp_dir" || {
+      if ! cd "$temp_dir" 2>/dev/null; then
         echo "  ${RED}❌ Failed to create temporary directory${NC}"
+        rm -rf "$temp_dir" 2>/dev/null || true
         return 1
-      }
+      fi
       
       if curl -fsSL -o "$macports_tarball" "$macports_url"; then
         echo "  Extracting source code..."
         if tar xf "$macports_tarball"; then
-          cd "MacPorts-${macports_version}" || {
+          if ! cd "MacPorts-${macports_version}" 2>/dev/null; then
             echo "  ${RED}❌ Failed to navigate to source directory${NC}"
-            cd - >/dev/null || true
-            rm -rf "$temp_dir"
+            cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+            rm -rf "$temp_dir" 2>/dev/null || true
             return 1
-          }
+          fi
           
           echo "  Configuring MacPorts..."
           # In CI/non-interactive mode, suppress verbose output
@@ -384,20 +402,20 @@ install_macports() {
                   echo "  ${BLUE}INFO:${NC} Then run: sudo port selfupdate"
                 else
                   echo "  ${RED}❌ MacPorts installation failed (make install)${NC}"
-                  cd - >/dev/null || true
-                  rm -rf "$temp_dir"
+                  cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+                  rm -rf "$temp_dir" 2>/dev/null || true
                   return 1
                 fi
               else
                 echo "  ${RED}❌ MacPorts build failed (make)${NC}"
-                cd - >/dev/null || true
-                rm -rf "$temp_dir"
+                cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+                rm -rf "$temp_dir" 2>/dev/null || true
                 return 1
               fi
             else
               echo "  ${RED}❌ MacPorts configuration failed (configure)${NC}"
-              cd - >/dev/null || true
-              rm -rf "$temp_dir"
+              cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+              rm -rf "$temp_dir" 2>/dev/null || true
               return 1
             fi
           else
@@ -412,38 +430,40 @@ install_macports() {
                   echo "  ${BLUE}INFO:${NC} Then run: sudo port selfupdate"
                 else
                   echo "  ${RED}❌ MacPorts installation failed (make install)${NC}"
-                  cd - >/dev/null || true
-                  rm -rf "$temp_dir"
+                  cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+                  rm -rf "$temp_dir" 2>/dev/null || true
                   return 1
                 fi
               else
                 echo "  ${RED}❌ MacPorts build failed (make)${NC}"
-                cd - >/dev/null || true
-                rm -rf "$temp_dir"
+                cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+                rm -rf "$temp_dir" 2>/dev/null || true
                 return 1
               fi
             else
               echo "  ${RED}❌ MacPorts configuration failed (configure)${NC}"
-              cd - >/dev/null || true
-              rm -rf "$temp_dir"
+              cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+              rm -rf "$temp_dir" 2>/dev/null || true
               return 1
             fi
           fi
         else
           echo "  ${RED}❌ Failed to extract MacPorts source${NC}"
-          rm -rf "$temp_dir"
+          cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+          rm -rf "$temp_dir" 2>/dev/null || true
           return 1
         fi
       else
         echo "  ${RED}❌ Failed to download MacPorts source${NC}"
         echo "  ${BLUE}INFO:${NC} Visit: https://www.macports.org/install.php for manual installation"
-        rm -rf "$temp_dir"
+        cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+        rm -rf "$temp_dir" 2>/dev/null || true
         return 1
       fi
       
-      # Cleanup
-      cd - >/dev/null || true
-      rm -rf "$temp_dir"
+      # Cleanup - return to original directory safely
+      cd "$original_dir" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+      rm -rf "$temp_dir" 2>/dev/null || true
     else
       echo "${YELLOW}⚠️  Skipping MacPorts installation${NC}"
     fi
@@ -812,48 +832,25 @@ main() {
   echo "Starting installation..."
   echo ""
   
-  # Install Xcode Command Line Tools (required - includes Git)
-  install_xcode_clt
+  # Critical installations (must succeed)
+  set -e
+  install_xcode_clt || { echo "${RED}❌ Critical: Xcode Command Line Tools installation failed${NC}"; exit 1; }
+  install_homebrew || { echo "${RED}❌ Critical: Homebrew installation failed${NC}"; exit 1; }
+  setup_maintain_system || { echo "${RED}❌ Critical: maintain-system script installation failed${NC}"; exit 1; }
+  setup_zprofile_path_cleanup || { echo "${RED}❌ Critical: PATH cleanup setup failed${NC}"; exit 1; }
+  install_zsh_config || { echo "${RED}❌ Critical: zsh configuration installation failed${NC}"; exit 1; }
+  refresh_environment || { echo "${RED}❌ Critical: Environment refresh failed${NC}"; exit 1; }
   
-  # Install Homebrew if needed
-  install_homebrew
-  
-  # Install Oh My Zsh
-  install_oh_my_zsh
-  
-  # Install Powerlevel10k theme
-  install_powerlevel10k
-  
-  # Install ZSH plugins
-  install_zsh_plugins
-  
-  # Install FZF
-  install_fzf
-  
-  # Install mas (Mac App Store CLI)
-  install_mas
-  
-  # Install MacPorts (optional)
-  install_macports
-  
-  # Install Nix (optional)
-  install_nix
-  
-  # Setup maintain-system script
-  setup_maintain_system
-  
-  # Setup Nix PATH (if Nix is installed)
-  setup_nix_path
-  
-  # Setup PATH cleanup in .zprofile (ensures Homebrew comes before /usr/bin)
-  setup_zprofile_path_cleanup
-  
-  # Install zsh config
-  install_zsh_config
-  
-  # Refresh environment immediately (critical for CI/non-interactive mode)
-  # This ensures PATH and other variables are updated in the current shell session
-  refresh_environment
+  # Optional installations (can fail)
+  set +e
+  install_oh_my_zsh || warn "Oh My Zsh installation failed"
+  install_powerlevel10k || warn "Powerlevel10k installation failed"
+  install_zsh_plugins || warn "ZSH plugins installation failed"
+  install_fzf || warn "FZF installation failed"
+  install_mas || warn "mas installation failed"
+  install_macports || warn "MacPorts installation failed or was skipped"
+  install_nix || warn "Nix installation failed or was skipped"
+  setup_nix_path || warn "Nix PATH setup failed"
   
   echo ""
   if [[ $install_warnings -gt 0 ]]; then
@@ -865,12 +862,15 @@ main() {
   echo "Next steps:"
   echo "  1. Run: source ~/.zshrc"
   echo "     (This loads the 'reload' and 'reloadzsh' aliases and other shell configurations)"
-  echo "  2. Then you can use:"
+  echo "  2. (Optional) Install development tools:"
+  echo "     - Run './dev-tools.sh' to install language version managers and language runtimes"
+  echo "     - This includes: Conda, pipx, pyenv, nvm, chruby, rustup, swiftly, Go, Java, .NET"
+  echo "  3. Then you can use:"
   echo "     - reload     : Updates both .zprofile and .zshrc (recommended for full refresh)"
   echo "     - reloadzsh  : Updates only .zshrc (for quick shell config reload)"
-  echo "  3. Or simply restart your terminal"
-  echo "  4. Run 'p10k configure' to customize your Powerlevel10k theme (optional)"
-  echo "  5. Run 'update' to update all your tools"
+  echo "  4. Or simply restart your terminal"
+  echo "  5. Run 'p10k configure' to customize your Powerlevel10k theme (optional)"
+  echo "  6. Run 'update' to update all your tools"
   echo ""
   echo "Available commands:"
   echo "  - reload     : Reload both .zprofile and .zshrc (updates PATH and shell config)"

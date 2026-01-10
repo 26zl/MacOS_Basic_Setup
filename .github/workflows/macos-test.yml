@@ -16,8 +16,7 @@ jobs:
     name: macOS Functionality Test
     runs-on: macos-latest
     env:
-      NONINTERACTIVE: "1"
-      CI: "1"
+      FORCE_INTERACTIVE: "1"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,6 +30,7 @@ jobs:
           echo "=== Verifying required files ==="
           required_files=(
             "install.sh"
+            "dev-tools.sh"
             "zsh.sh"
             "maintain-system.sh"
             "scripts/nix-macos-maintenance.sh"
@@ -57,13 +57,14 @@ jobs:
           # Check file permissions
           echo ""
           echo "=== Checking file permissions ==="
-          chmod +x install.sh maintain-system.sh zsh.sh quick-test.sh 2>/dev/null || true
+          chmod +x install.sh dev-tools.sh maintain-system.sh zsh.sh quick-test.sh 2>/dev/null || true
           chmod +x scripts/nix-macos-maintenance.sh 2>/dev/null || true
           
           # Test syntax
           echo ""
           echo "=== Testing syntax ==="
           zsh -n install.sh && echo "install.sh syntax OK" || { echo "install.sh syntax error"; exit 1; }
+          zsh -n dev-tools.sh && echo "dev-tools.sh syntax OK" || { echo "dev-tools.sh syntax error"; exit 1; }
           zsh -n zsh.sh && echo "zsh.sh syntax OK" || { echo "zsh.sh syntax error"; exit 1; }
           zsh -n maintain-system.sh && echo "maintain-system.sh syntax OK" || { echo "maintain-system.sh syntax error"; exit 1; }
           zsh -n quick-test.sh && echo "quick-test.sh syntax OK" || { echo "quick-test.sh syntax error"; exit 1; }
@@ -81,7 +82,7 @@ jobs:
           echo "XDG_DATA_HOME=$fresh_home/.local/share" >> "$GITHUB_ENV"
           echo "XDG_CONFIG_HOME=$fresh_home/.config" >> "$GITHUB_ENV"
           echo "XDG_CACHE_HOME=$fresh_home/.cache" >> "$GITHUB_ENV"
-          echo "NONINTERACTIVE=1" >> "$GITHUB_ENV"
+          echo "FORCE_INTERACTIVE=1" >> "$GITHUB_ENV"
           mkdir -p "$fresh_home/.local/share" "$fresh_home/.config" "$fresh_home/.cache"
           echo "Fresh home directory prepared: $fresh_home"
 
@@ -89,10 +90,10 @@ jobs:
         run: |
           echo "=== Installation and Validation ==="
           
-          # Test non-interactive mode handling
+          # Test yes-to-all prompt handling
           echo ""
-          echo "=== Testing non-interactive mode ==="
-          echo "NONINTERACTIVE=${NONINTERACTIVE:-not set}"
+          echo "=== Testing yes-to-all mode ==="
+          echo "FORCE_INTERACTIVE=${FORCE_INTERACTIVE:-not set}"
           echo "CI=${CI:-not set}"
           
           # Install project
@@ -107,22 +108,48 @@ jobs:
           # This simulates user answering "yes" to all interactive questions
           # Redirect yes stderr to /dev/null to avoid "Broken pipe" warnings
           (yes 2>/dev/null | ./install.sh 2>&1 | tee install.log) || true
+          
+          # Test dev-tools.sh (optional tools, yes-to-all prompt mode)
+          echo ""
+          echo "Testing dev-tools.sh on macOS with a clean HOME..."
+          chmod +x dev-tools.sh 2>/dev/null || true
+          (yes 2>/dev/null | ./dev-tools.sh 2>&1 | tee dev-tools.log) || true
+          echo ""
+          echo "=== dev-tools.sh log summary ==="
+          tail -50 dev-tools.log || true
           echo ""
           echo "=== Installation log summary ==="
           tail -100 install.log || true
           
-          # Validate that interactive prompts are auto-answered in CI mode
+          # Validate that interactive prompts are answered "yes" in CI mode
           echo ""
-          echo "=== Validating CI mode behavior ==="
+          echo "=== Validating yes-to-all prompt behavior ==="
           if grep -qiE "(Install Homebrew\?|Install MacPorts\?|Install mas|Install Nix\?)" install.log; then
-            echo "Interactive prompts found - checking if they were auto-answered..."
-            if grep -qiE "\[Auto: yes\]" install.log; then
-              echo "OK: Interactive prompts correctly auto-answered in CI mode"
+            echo "Interactive prompts found - checking for skipped installs..."
+            if grep -qiE "Skipping Homebrew installation|Skipping MacPorts installation|Skipping mas installation|Skipping Nix installation" install.log; then
+              echo "ERROR: Detected skipped installations despite yes-to-all mode"
+              exit 1
             else
-              echo "WARNING: Prompts found but may not be auto-answered"
+              echo "OK: No skipped installations detected"
             fi
           else
             echo "No interactive prompts found (may be OK if all tools already installed)"
+          fi
+          
+          # Validate dev-tools.sh prompt behavior
+          echo ""
+          echo "=== Validating dev-tools.sh yes-to-all behavior ==="
+          if grep -qiE "(Install.*via Homebrew\?|Install.*\?)" dev-tools.log; then
+            echo "Interactive prompts found in dev-tools.sh (yes-to-all mode enabled)"
+          else
+            echo "No interactive prompts found in dev-tools.sh (may be OK if all tools already installed)"
+          fi
+          
+          # Verify that dev-tools.sh does not try to install system package managers
+          if grep -qiE "(Install Homebrew\?|Install MacPorts\?|Install Nix\?|Install mas\?)" dev-tools.log; then
+            echo "WARNING: dev-tools.sh attempted to install system package managers (should be in install.sh only)"
+          else
+            echo "OK: dev-tools.sh does not install system package managers"
           fi
           
           # Verify that installation attempts were made in CI
@@ -215,11 +242,28 @@ jobs:
             exit 1
           fi
           
-          if grep -q "install_homebrew\|install_macports\|install_mas\|install_nix" install.sh; then
-            echo "Package manager install functions found in install.sh"
+          # Test that dev-tools.sh functions exist
+          echo ""
+          echo "=== Testing dev-tools.sh functions ==="
+          if grep -q "^_ask_user()" dev-tools.sh; then
+            echo "_ask_user function found in dev-tools.sh"
           else
-            echo "ERROR: Package manager install functions not found in install.sh"
+            echo "ERROR: _ask_user function not found in dev-tools.sh"
             exit 1
+          fi
+          
+          if grep -q "install_conda\|install_pipx\|install_pyenv\|install_nvm\|install_chruby\|install_rustup\|install_swiftly\|install_go\|install_java\|install_dotnet" dev-tools.sh; then
+            echo "Language package manager and version manager install functions found in dev-tools.sh"
+          else
+            echo "ERROR: Install functions not found in dev-tools.sh"
+            exit 1
+          fi
+          
+          # Test that dev-tools.sh does NOT install system package managers
+          if grep -q "install_homebrew\|install_macports\|install_nix\|install_mas" dev-tools.sh; then
+            echo "WARNING: System package manager install functions found in dev-tools.sh (should be in install.sh only)"
+          else
+            echo "OK: dev-tools.sh does not install system package managers (Homebrew, MacPorts, Nix, mas)"
           fi
           
           # Test that install.sh has installation warnings
@@ -418,8 +462,8 @@ jobs:
           zsh -lc '
             output=$(maintain-system verify 2>&1)
             
-            if echo "$output" | grep -q "Not found - skipping\|To install.*run.*install.sh"; then
-              echo "Script handles missing tools gracefully (shows skip message with install.sh reference)"
+            if echo "$output" | grep -qE "Not found - skipping.*install\.sh|Not installed.*dev-tools\.sh"; then
+              echo "Script handles missing tools gracefully (shows skip messages with correct script references)"
             else
               echo "No missing tools detected (this is OK if all tools are installed)"
             fi
@@ -439,18 +483,26 @@ jobs:
         run: |
           echo "=== Package Manager Testing ==="
           
-          # Test that maintain-system.sh skips missing package managers and refers to install.sh
+          # Test that maintain-system.sh skips missing tools and refers to correct scripts
           echo ""
           echo "Testing maintain-system.sh skip behavior..."
           zsh -lc '
             output=$(maintain-system verify 2>&1)
             
-            # Check for skip messages with install.sh references (on separate lines)
+            # Check for skip messages with install.sh references for system package managers
             if echo "$output" | grep -qE "Not found - skipping" && echo "$output" | grep -qE "To install.*run.*install\.sh"; then
-              echo "OK: maintain-system.sh correctly skips missing tools and refers to install.sh"
+              echo "OK: maintain-system.sh correctly skips missing system package managers and refers to install.sh"
             else
-              echo "WARNING: Skip messages with install.sh references not found"
-              echo "This may be OK if all package managers are installed"
+              echo "WARNING: Skip messages with install.sh references not found for system package managers"
+              echo "This may be OK if all system package managers are installed"
+            fi
+            
+            # Check for skip messages with dev-tools.sh references for language tools
+            if echo "$output" | grep -qE "Not installed" && echo "$output" | grep -qE "To install.*run.*dev-tools\.sh"; then
+              echo "OK: maintain-system.sh correctly refers to dev-tools.sh for language tools"
+            else
+              echo "WARNING: Skip messages with dev-tools.sh references not found for language tools"
+              echo "This may be OK if all language tools are installed"
             fi
           ' || exit 1
           
@@ -475,16 +527,16 @@ jobs:
             echo "INFO: mas not installed (this is OK if Homebrew not available or installation was skipped)"
           fi
           
-          # Test Homebrew skip behavior
+          # Test Homebrew skip behavior (should refer to install.sh)
           echo ""
           echo "Testing Homebrew skip behavior in maintain-system.sh..."
           if grep -qE "Not found - skipping" maintain-system.sh && grep -qE "To install Homebrew.*run.*install\.sh" maintain-system.sh; then
-            echo "Homebrew skip message with install.sh reference found"
+            echo "OK: Homebrew skip message with install.sh reference found"
           else
             echo "WARNING: Homebrew skip message not found in maintain-system.sh"
           fi
           
-          # Test MacPorts skip behavior
+          # Test MacPorts skip behavior (should refer to install.sh)
           echo ""
           echo "Testing MacPorts skip behavior in maintain-system.sh..."
           if grep -qE "Not found - skipping" maintain-system.sh && grep -qE "To install MacPorts.*run.*install\.sh" maintain-system.sh; then
@@ -493,7 +545,7 @@ jobs:
             echo "WARNING: MacPorts skip message not found in maintain-system.sh"
           fi
           
-          # Test mas skip behavior
+          # Test mas skip behavior (should refer to install.sh)
           echo ""
           echo "Testing mas skip behavior in maintain-system.sh..."
           if grep -qE "Not found - skipping" maintain-system.sh && grep -qE "To install mas.*run.*install\.sh" maintain-system.sh; then
@@ -502,13 +554,22 @@ jobs:
             echo "WARNING: mas skip message not found in maintain-system.sh"
           fi
           
-          # Test Nix skip behavior
+          # Test Nix skip behavior (should refer to install.sh)
           echo ""
           echo "Testing Nix skip behavior in maintain-system.sh..."
           if grep -qE "Not found - skipping" maintain-system.sh && grep -qE "To install Nix.*run.*install\.sh" maintain-system.sh; then
             echo "OK: Nix skip message with install.sh reference found"
           else
             echo "WARNING: Nix skip message not found in maintain-system.sh"
+          fi
+          
+          # Test language tools skip behavior (should refer to dev-tools.sh)
+          echo ""
+          echo "Testing language tools skip behavior in maintain-system.sh..."
+          if grep -qE "To install.*run.*dev-tools\.sh" maintain-system.sh; then
+            echo "OK: Language tools skip messages with dev-tools.sh reference found"
+          else
+            echo "WARNING: Language tools skip messages with dev-tools.sh reference not found"
           fi
           
           # Test that installed package managers actually work with maintain-system
@@ -801,16 +862,68 @@ jobs:
             fi
           ' || exit 1
           
-          # Test Homebrew auto-install skip behavior
+          # Test Homebrew auto-install skip behavior (should refer to install.sh)
           echo ""
           echo "Testing Homebrew skip behavior in maintain-system.sh..."
           zsh -lc '
-            if grep -q "Not found - skipping\|To install Homebrew.*run.*install.sh" "$(command -v maintain-system)" 2>/dev/null; then
-              echo "Homebrew skip logic detected in maintain-system.sh"
+            if grep -q "Not found - skipping\|To install Homebrew.*run.*install\.sh" "$(command -v maintain-system)" 2>/dev/null; then
+              echo "OK: Homebrew skip logic with install.sh reference detected in maintain-system.sh"
             else
-              echo "Homebrew skip logic not found (may be OK if Homebrew is always present)"
+              echo "WARNING: Homebrew skip logic not found (may be OK if Homebrew is always present)"
             fi
           ' || exit 1
+          
+          # Test dev-tools.sh installation attempts
+          echo ""
+          echo "=== Testing dev-tools.sh installation attempts in CI ==="
+          if grep -qiE "(Installing pyenv|Installing nvm|Installing chruby|Installing rustup|Installing swiftly|Installing Go|Installing Java|Installing .NET|Installing Conda|Installing pipx)" dev-tools.log; then
+            echo "OK: Language tool installation attempts detected in dev-tools.sh CI mode"
+          else
+            echo "INFO: No installation attempts found in dev-tools.sh (may be OK if all tools already installed or skipped in CI)"
+          fi
+          
+          # Verify that system package managers are NOT installed by dev-tools.sh
+          if grep -qiE "(Installing Homebrew|Installing mas|Installing MacPorts|Installing Nix)" dev-tools.log; then
+            echo "WARNING: dev-tools.sh attempted to install system package managers (should be in install.sh only)"
+          else
+            echo "OK: dev-tools.sh does not attempt to install system package managers"
+          fi
+          
+          # Test that dev-tools.sh handles ruby-install dependency
+          echo ""
+          echo "=== Testing dev-tools.sh ruby-install handling ==="
+          if grep -qiE "ruby-install|chruby.*ruby-install" dev-tools.sh; then
+            echo "OK: dev-tools.sh handles ruby-install dependency for chruby"
+          else
+            echo "WARNING: ruby-install handling not found in dev-tools.sh"
+          fi
+          
+          # Test dev-tools.sh test mode
+          echo ""
+          echo "=== Testing dev-tools.sh test mode ==="
+          if ./dev-tools.sh test 2>&1 | grep -qE "Testing Tool Detection|Found:|Missing:"; then
+            echo "OK: dev-tools.sh test mode works"
+          else
+            echo "WARNING: dev-tools.sh test mode may not work correctly"
+          fi
+          
+          # Test dev-tools.sh check mode
+          echo ""
+          echo "=== Testing dev-tools.sh check mode ==="
+          if ./dev-tools.sh check 2>&1 | grep -qE "Checking Installed Tools|already installed|Would install"; then
+            echo "OK: dev-tools.sh check mode works"
+          else
+            echo "WARNING: dev-tools.sh check mode may not work correctly"
+          fi
+          
+          # Test that dev-tools.sh has PATH setup for Unix tools
+          echo ""
+          echo "=== Testing dev-tools.sh PATH setup ==="
+          if grep -qE "export PATH=.*/usr/bin.*/bin" dev-tools.sh || grep -q "/usr/bin/grep\|/usr/bin/sort\|/usr/bin/tail" dev-tools.sh; then
+            echo "OK: dev-tools.sh has PATH setup or uses full paths for Unix tools"
+          else
+            echo "WARNING: dev-tools.sh may not have proper PATH setup for Unix tools"
+          fi
           
           # Test Swift installation
           echo ""
@@ -1139,7 +1252,7 @@ jobs:
           # Test all scripts for common issues
           echo ""
           echo "Testing scripts for common issues..."
-          for script in install.sh maintain-system.sh zsh.sh quick-test.sh scripts/nix-macos-maintenance.sh; do
+          for script in install.sh dev-tools.sh maintain-system.sh zsh.sh quick-test.sh scripts/nix-macos-maintenance.sh; do
             if [[ -f "$script" ]]; then
               # Check for TODO/FIXME markers
               if grep -qE "TODO|FIXME|XXX" "$script"; then
@@ -1192,5 +1305,10 @@ jobs:
           echo "  - Go permanent configuration"
           echo "  - Swift installation with swiftly"
           echo "  - Code quality (shebangs, hardcoded paths, TODO markers)"
+          echo "  - dev-tools.sh installation and CI mode handling"
+          echo "  - dev-tools.sh ruby-install dependency handling"
+          echo "  - dev-tools.sh separation from system package managers (Homebrew, MacPorts, Nix, mas)"
+          echo "  - dev-tools.sh test and check modes"
+          echo "  - dev-tools.sh PATH setup for Unix tools"
           echo ""
           echo "All tests passed!"

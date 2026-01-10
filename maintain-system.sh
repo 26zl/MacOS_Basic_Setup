@@ -116,34 +116,6 @@ _is_project_directory() {
   return 1  # Not a project directory
 }
 
-# Ask user for confirmation (non-interactive mode support)
-_ask_user() {
-  local prompt="$1"
-  local default="${2:-N}"
-  
-  # Skip prompts in non-interactive mode
-  if [[ -n "${NONINTERACTIVE:-}" ]] || [[ -n "${CI:-}" ]]; then
-    return 1
-  fi
-  
-  echo -n "$prompt "
-  if [[ "$default" == "Y" ]]; then
-    echo -n "[Y/n]: "
-  else
-    echo -n "[y/N]: "
-  fi
-  
-  read -r response
-  if [[ -z "$response" ]]; then
-    response="$default"
-  fi
-  
-  case "$response" in
-    [Yy]*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 # Check if Python is system Python (should not be modified)
 _is_system_python() {
   local python_path="$1"
@@ -1063,8 +1035,13 @@ update() {
   fi
   
   if command -v port >/dev/null 2>&1; then
-    echo "${GREEN}[MacPorts]${NC} sudo required; you may be prompted..."
-    local port_errors=()
+    # Skip MacPorts in CI/CD environments (requires sudo)
+    if [[ -n "${CI:-}" ]] || [[ -n "${NONINTERACTIVE:-}" ]]; then
+      echo "${GREEN}[MacPorts]${NC} Skipped in CI/non-interactive mode (requires sudo)"
+      # Continue with rest of update function, just skip MacPorts block
+    else
+      echo "${GREEN}[MacPorts]${NC} sudo required; you may be prompted..."
+      local port_errors=()
     
     local port_output=""
     port_output="$(sudo port -v selfupdate 2>&1 || echo "FAILED")"
@@ -1076,8 +1053,9 @@ update() {
       # Note: "Ports successfully parsed: 1" can be just re-parsing, not a real update
       if echo "$port_output" | grep -qiE "Adding port"; then
         echo "  MacPorts updated successfully"
-      elif echo "$port_output" | grep -qiE "Ports successfully parsed:[[:space:]]+[2-9]|[0-9]{2,}"; then
+      elif echo "$port_output" | grep -qiE "(Ports successfully parsed:[[:space:]]+[2-9]|Ports successfully parsed:[[:space:]]+[0-9]{2,})"; then
         # Only consider it an update if 2+ ports were parsed (1 is often just re-parsing)
+        # Grouped alternation to avoid false matches
         echo "  MacPorts updated successfully"
       elif echo "$port_output" | grep -qiE "(already|up to date|latest version|Up-to-date ports skipped|Ports successfully parsed:[[:space:]]+0|Ports successfully parsed:[[:space:]]+1)"; then
         echo "  ${BLUE}INFO:${NC} MacPorts is already up to date"
@@ -1114,6 +1092,7 @@ update() {
     if [[ ${#port_errors[@]} -gt 0 ]]; then
       echo "  MacPorts issues: ${port_errors[*]}"
     fi
+    fi  # End of else block for non-CI MacPorts update
   fi
 
   local pybin=""
@@ -2074,6 +2053,96 @@ update() {
     _cargo_update_packages || true
   fi
 
+  # .NET SDK - update if installed
+  if command -v dotnet >/dev/null 2>&1; then
+    echo "${GREEN}[.NET]${NC} Updating .NET SDK and workloads..."
+    local dotnet_errors=()
+    
+    # Check current version
+    local current_dotnet_version=""
+    current_dotnet_version="$(dotnet --version 2>/dev/null || echo "")"
+    if [[ -n "$current_dotnet_version" ]]; then
+      echo "  Current .NET SDK version: $current_dotnet_version"
+    fi
+    
+    # Try to update via Homebrew if installed via Homebrew
+    if command -v brew >/dev/null 2>&1; then
+      local brew_dotnet_info=""
+      brew_dotnet_info="$(brew list --formula 2>/dev/null | grep -E '^dotnet$' || echo "")"
+      if [[ -n "$brew_dotnet_info" ]]; then
+        echo "  Updating .NET via Homebrew..."
+        local brew_upgrade_output=""
+        brew_upgrade_output="$(brew upgrade dotnet 2>&1 || echo "FAILED")"
+        if [[ "$brew_upgrade_output" != *"FAILED"* ]]; then
+          if echo "$brew_upgrade_output" | grep -qiE "(Upgrading|==> Pouring|Upgraded|changed)"; then
+            echo "    SUCCESS: .NET updated via Homebrew"
+          elif echo "$brew_upgrade_output" | grep -qiE "(Already up-to-date|Nothing to upgrade)"; then
+            echo "    ${BLUE}INFO:${NC} .NET is already up to date via Homebrew"
+          else
+            echo "    ${BLUE}INFO:${NC} .NET checked via Homebrew (may already be up to date)"
+          fi
+        else
+          dotnet_errors+=("brew_upgrade")
+          echo "    ${RED}WARNING:${NC} Failed to update .NET via Homebrew"
+        fi
+      fi
+    fi
+    
+    # Update .NET workloads
+    echo "  Updating .NET workloads..."
+    local workload_output=""
+    workload_output="$(dotnet workload update 2>&1 || echo "FAILED")"
+    if [[ "$workload_output" != *"FAILED"* ]]; then
+      if echo "$workload_output" | grep -qiE "(Updated|Installed|Successfully)"; then
+        echo "    SUCCESS: .NET workloads updated"
+      elif echo "$workload_output" | grep -qiE "(already|up to date|No updates)"; then
+        echo "    ${BLUE}INFO:${NC} .NET workloads are already up to date"
+      else
+        echo "    ${BLUE}INFO:${NC} .NET workloads checked (may already be up to date)"
+      fi
+    else
+      # Workload update failure is not critical - workloads may not be installed
+      echo "    ${BLUE}INFO:${NC} No workloads to update or workload update not needed"
+    fi
+    
+    # Update global .NET tools
+    echo "  Updating global .NET tools..."
+    # First check if there are any global tools installed
+    local tool_list_output=""
+    tool_list_output="$(dotnet tool list --global 2>&1 || echo "FAILED")"
+    local tool_count=0
+    if [[ "$tool_list_output" != *"FAILED"* ]]; then
+      # Count lines that contain package info (skip header lines)
+      tool_count=$(echo "$tool_list_output" | grep -E "^[a-zA-Z]" | wc -l | tr -d ' ' || echo "0")
+    fi
+    
+    if [[ "$tool_count" -eq 0 ]]; then
+      echo "    ${BLUE}INFO:${NC} No global .NET tools installed"
+    else
+      echo "    Found $tool_count global .NET tool(s), updating..."
+      local tool_update_output=""
+      tool_update_output="$(dotnet tool update --global --all 2>&1 || echo "FAILED")"
+      if [[ "$tool_update_output" != *"FAILED"* ]]; then
+        if echo "$tool_update_output" | grep -qiE "(Updated|Upgraded|Installed|Successfully)"; then
+          echo "    SUCCESS: Global .NET tools updated"
+        elif echo "$tool_update_output" | grep -qiE "(already|up to date|No updates)"; then
+          echo "    ${BLUE}INFO:${NC} Global .NET tools are already up to date"
+        else
+          echo "    ${BLUE}INFO:${NC} Global .NET tools checked (may already be up to date)"
+        fi
+      else
+        dotnet_errors+=("tool_update")
+        echo "    ${RED}WARNING:${NC} Failed to update global .NET tools"
+      fi
+    fi
+    
+    # Report .NET issues
+    if [[ ${#dotnet_errors[@]} -gt 0 ]]; then
+      echo "  .NET issues: ${dotnet_errors[*]}"
+      echo "  ${BLUE}INFO:${NC} If .NET was installed via official installer, update manually from: https://dotnet.microsoft.com/download"
+    fi
+  fi
+
   # Check for mas - skip if missing (install via install.sh)
   if ! command -v mas >/dev/null 2>&1; then
     echo "${GREEN}[mas]${NC} Not found - skipping"
@@ -2320,6 +2389,7 @@ verify() {
       warn "Ruby" "not installed (run 'update' to install)"
     else
       miss "Ruby"
+      echo "  ${BLUE}INFO:${NC} To install Ruby and chruby, run: ./dev-tools.sh"
     fi
   fi
 
@@ -2386,6 +2456,7 @@ verify() {
       warn "Python" "not installed (run 'update' to install)"
     else
       miss "Python"
+      echo "  ${BLUE}INFO:${NC} To install Python and pyenv, run: ./dev-tools.sh"
     fi
   fi
 
@@ -2409,6 +2480,7 @@ verify() {
       warn "Node" "not installed (run 'update' to install)"
     else
       miss "Node"
+      echo "  ${BLUE}INFO:${NC} To install Node.js and nvm, run: ./dev-tools.sh"
     fi
   fi
 
@@ -2419,6 +2491,7 @@ verify() {
       warn "Rust" "not installed (run 'update' to install)"
     else
       miss "Rust"
+      echo "  ${BLUE}INFO:${NC} To install Rust and rustup, run: ./dev-tools.sh"
     fi
   fi
   if command -v rustup >/dev/null 2>&1; then
@@ -2426,6 +2499,21 @@ verify() {
     [[ "$active" == stable* ]] && ok "rustup" "$active" || warn "rustup" "$active"
   fi
   command -v cargo >/dev/null 2>&1 && ok "Cargo" "$(cargo --version 2>/dev/null || echo "installed")"
+
+  # .NET
+  if command -v dotnet >/dev/null 2>&1; then
+    local dotnet_version="$(dotnet --version 2>/dev/null || echo "unknown")"
+    local dotnet_sdks=""
+    dotnet_sdks="$(dotnet --list-sdks 2>/dev/null | wc -l | tr -d ' ' || echo "0")"
+    if [[ "$dotnet_sdks" -gt 0 ]]; then
+      ok ".NET" "$dotnet_version ($dotnet_sdks SDK(s))"
+    else
+      ok ".NET" "$dotnet_version"
+    fi
+  else
+    miss ".NET"
+    echo "  ${BLUE}INFO:${NC} To install .NET SDK, run: ./dev-tools.sh"
+  fi
 
   # Swift
   if command -v swift >/dev/null 2>&1; then
@@ -2464,11 +2552,12 @@ verify() {
       [[ -n "$swiftly_installed" ]] && warn "swiftly" "installed but Swift not in PATH" || warn "swiftly" "installed but not initialized"
     else
       miss "Swift"
+      echo "  ${BLUE}INFO:${NC} To install Swift and swiftly, run: ./dev-tools.sh"
     fi
   fi
 
-  command -v go   >/dev/null 2>&1 && ok "Go"   "$(go version)" || miss "Go"
-  command -v java >/dev/null 2>&1 && ok "Java" "$(java -version 2>&1 | head -n1)" || miss "Java"
+  command -v go   >/dev/null 2>&1 && ok "Go"   "$(go version)" || { miss "Go"; echo "  ${BLUE}INFO:${NC} To install Go, run: ./dev-tools.sh"; }
+  command -v java >/dev/null 2>&1 && ok "Java" "$(java -version 2>&1 | head -n1)" || { miss "Java"; echo "  ${BLUE}INFO:${NC} To install Java, run: ./dev-tools.sh"; }
   command -v clang >/dev/null 2>&1 && ok "Clang" "$(clang --version | head -n1)" || miss "Clang"
   command -v gcc  >/dev/null 2>&1 && ok "GCC"  "$(gcc --version | head -n1)" || warn "GCC" "not found"
   
@@ -2725,6 +2814,21 @@ versions() {
     local cargo_version="$(cargo --version 2>/dev/null || echo "installed")"
     local cargo_count="$(cargo install --list 2>/dev/null | grep -E '^[a-z]' | wc -l | tr -d ' ' || echo "0")"
     echo "Cargo .......... $cargo_version ($cargo_count packages)"
+  fi
+  
+  if command -v dotnet >/dev/null 2>&1; then
+    local dotnet_version="$(dotnet --version 2>/dev/null || echo "unknown")"
+    local dotnet_info="$dotnet_version"
+    
+    # Check for installed SDKs
+    local dotnet_sdks=""
+    dotnet_sdks="$(dotnet --list-sdks 2>/dev/null | wc -l | tr -d ' ' || echo "0")"
+    if [[ "$dotnet_sdks" -gt 0 ]]; then
+      dotnet_info="$dotnet_version ($dotnet_sdks SDK(s) installed)"
+    fi
+    echo ".NET ........... $dotnet_info"
+  else
+    echo ".NET ........... not installed"
   fi
   
   if command -v swift >/dev/null 2>&1; then

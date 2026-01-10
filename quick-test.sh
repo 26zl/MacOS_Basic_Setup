@@ -18,6 +18,13 @@ else
   test_failed=1
 fi
 
+if zsh -n dev-tools.sh; then
+  echo "${GREEN}✅ OK: dev-tools.sh syntax valid${NC}"
+else
+  echo "FAIL: dev-tools.sh syntax error"
+  test_failed=1
+fi
+
 if zsh -n zsh.sh; then
   echo "${GREEN}✅ OK: zsh.sh syntax valid${NC}"
 else
@@ -38,6 +45,13 @@ if [[ -f install.sh ]]; then
   echo "${GREEN}✅ OK: install.sh exists${NC}"
 else
   echo "FAIL: install.sh missing"
+  test_failed=1
+fi
+
+if [[ -f dev-tools.sh ]]; then
+  echo "${GREEN}✅ OK: dev-tools.sh exists${NC}"
+else
+  echo "FAIL: dev-tools.sh missing"
   test_failed=1
 fi
 
