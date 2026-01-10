@@ -2,7 +2,7 @@ name: Release
 
 on:
   workflow_run:
-    workflows: ["Checks", "macOS Test", "Security Scan"]
+    workflows: ["macOS Test"]
     types:
       - completed
   release:
@@ -129,9 +129,11 @@ jobs:
     needs: [check-workflows]
     # Only run if all workflows succeeded or if triggered manually/release
     if: |
-      (github.event_name == 'workflow_run' && needs.check-workflows.outputs.all-success == 'true') ||
-      github.event_name == 'release' ||
-      github.event_name == 'workflow_dispatch'
+      always() && (
+        (github.event_name == 'workflow_run' && needs.check-workflows.outputs.all-success == 'true') ||
+        github.event_name == 'release' ||
+        github.event_name == 'workflow_dispatch'
+      )
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
