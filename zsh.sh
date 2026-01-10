@@ -370,11 +370,17 @@ _detect_openjdk_path() {
   # Check versioned openjdk paths (openjdk@17, openjdk@21, etc.)
   if [[ -n "$HOMEBREW_PREFIX" ]] && [[ -d "$HOMEBREW_PREFIX/opt" ]]; then
     # Use glob expansion to find all openjdk@* versions
-    local openjdk_versioned_paths=("$HOMEBREW_PREFIX/opt"/openjdk@*/bin(N))
-    # (N) makes glob return empty array if no matches, so check array length
-    if [[ ${#openjdk_versioned_paths[@]} -gt 0 ]] && [[ -d "${openjdk_versioned_paths[1]}" ]]; then
-      # Use the first (likely latest) version found
-      echo "${openjdk_versioned_paths[1]}"
+    # Use a loop for maximum compatibility and to avoid ShellCheck issues with glob qualifiers
+    local result=""
+    for path in "$HOMEBREW_PREFIX"/opt/openjdk@*/bin; do
+      # Check if glob matched an actual directory (not literal string)
+      if [[ -d "$path" ]] && [[ "$path" != *"openjdk@*/bin" ]]; then
+        result="$path"
+        break
+      fi
+    done
+    if [[ -n "$result" ]]; then
+      echo "$result"
       return 0
     fi
   fi
