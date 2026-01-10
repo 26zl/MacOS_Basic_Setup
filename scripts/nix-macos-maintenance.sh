@@ -140,13 +140,21 @@ cmd_ensure_path() {
     # Check if marker exists in .zshrc (should be in .zprofile instead)
     if _has_marker "$ZSHRC"; then
         _log_warning "Nix hook found in $ZSHRC (should be in $ZPROFILE)"
-        _log_info "Would you like to remove it from $ZSHRC? (y/N)"
-        read -r response
-        if [[ "$response" =~ ^[Yy]$ ]]; then
+        # Only prompt if we have a TTY (interactive mode)
+        if [[ -t 0 ]]; then
+            _log_info "Would you like to remove it from $ZSHRC? (y/N)"
+            read -r response
+            if [[ "$response" =~ ^[Yy]$ ]]; then
+                _remove_marker_block "$ZSHRC"
+                _log_success "Removed Nix hook from $ZSHRC"
+            else
+                _log_info "Keeping hook in $ZSHRC (may cause duplicate sourcing)"
+            fi
+        else
+            # Non-interactive mode: automatically remove from .zshrc
+            _log_info "Non-interactive mode: automatically removing Nix hook from $ZSHRC"
             _remove_marker_block "$ZSHRC"
             _log_success "Removed Nix hook from $ZSHRC"
-        else
-            _log_info "Keeping hook in $ZSHRC (may cause duplicate sourcing)"
         fi
     fi
     

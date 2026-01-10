@@ -330,7 +330,7 @@ _detect_mysql_path() {
     if [[ -f "$path" ]]; then
       # Use zsh parameter expansion instead of dirname command
       echo "${path%/*}"
-    return 0
+      return 0
     fi
   done
   
@@ -341,7 +341,7 @@ _detect_mysql_path() {
     local mysql_dir="${mysql_bin%/*/*}"
     if [[ -f "$mysql_dir/support-files/mysql.server" ]]; then
       echo "$mysql_dir"
-  return 0
+      return 0
     fi
   fi
   
@@ -360,18 +360,24 @@ alias mysqlconnect="mysql -u root -p"
 # OpenJDK - detect dynamically
 _detect_openjdk_path() {
   local HOMEBREW_PREFIX="$(_detect_brew_prefix)"
-  local openjdk_paths=(
-    "$HOMEBREW_PREFIX/opt/openjdk/bin"
-    "$HOMEBREW_PREFIX/opt/openjdk@*/bin"
-    "/usr/libexec/java_home"
-  )
   
-  for path in "${openjdk_paths[@]}"; do
-    if [[ -d "$path" ]]; then
-      echo "$path"
+  # Check standard openjdk path first
+  if [[ -n "$HOMEBREW_PREFIX" ]] && [[ -d "$HOMEBREW_PREFIX/opt/openjdk/bin" ]]; then
+    echo "$HOMEBREW_PREFIX/opt/openjdk/bin"
     return 0
+  fi
+  
+  # Check versioned openjdk paths (openjdk@17, openjdk@21, etc.)
+  if [[ -n "$HOMEBREW_PREFIX" ]] && [[ -d "$HOMEBREW_PREFIX/opt" ]]; then
+    # Use glob expansion to find all openjdk@* versions
+    local openjdk_versioned_paths=("$HOMEBREW_PREFIX/opt"/openjdk@*/bin(N))
+    # (N) makes glob return empty array if no matches, so check array length
+    if [[ ${#openjdk_versioned_paths[@]} -gt 0 ]] && [[ -d "${openjdk_versioned_paths[1]}" ]]; then
+      # Use the first (likely latest) version found
+      echo "${openjdk_versioned_paths[1]}"
+      return 0
     fi
-  done
+  fi
   
   # Try via java_home
   if command -v /usr/libexec/java_home >/dev/null 2>&1; then
@@ -382,7 +388,7 @@ _detect_openjdk_path() {
     fi
   fi
   
-        echo ""
+  echo ""
 }
 
 openjdk_path="$(_detect_openjdk_path)"

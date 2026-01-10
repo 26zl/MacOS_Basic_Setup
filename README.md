@@ -1,31 +1,54 @@
-# macOS Development Environment Setup
+# 🚀 macOS Development Environment Setup
 
 [![Checks](https://github.com/26zl/MacOS_Basic_Setup/workflows/Checks/badge.svg)](https://github.com/26zl/MacOS_Basic_Setup/actions)
 [![Security Scan](https://github.com/26zl/MacOS_Basic_Setup/workflows/Security%20Scan/badge.svg)](https://github.com/26zl/MacOS_Basic_Setup/actions)
 [![macOS Test](https://github.com/26zl/MacOS_Basic_Setup/workflows/macOS%20Test/badge.svg)](https://github.com/26zl/MacOS_Basic_Setup/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> **One-command setup** for a complete macOS development environment with automated tool management, security best practices, and a beautiful terminal experience.
+**One-command setup** for a complete macOS development environment with automated tool management, security best practices, and a beautiful terminal experience.
 
 ![Terminal preview](background/image.png)
 
-## Quick Start
+## ✨ Why Use This?
 
-Get up and running in 2 minutes:
+Tired of manually updating dozens of tools? Spending hours configuring your development environment? This project solves that:
+
+- ⚡ **Save Time**: One command updates everything (Homebrew, MacPorts, Nix, Python, Node.js, Ruby, Rust, Go, Swift, .NET, and more)
+- 🎨 **Beautiful Terminal**: Pre-configured with Powerlevel10k, syntax highlighting, and autosuggestions
+- 🛡️ **Safe & Smart**: Automatically protects system files, detects package managers, and gracefully handles missing tools
+- 🔧 **Production Ready**: CI/CD safe, non-interactive mode support, comprehensive error handling
+- 📦 **Multi-Language**: Supports 7+ languages with version managers (pyenv, nvm, chruby, rustup, swiftly)
+- 🚀 **Zero Config**: Works out of the box on both Intel and Apple Silicon Macs
+
+## 👥 Who Is This For?
+
+- 🚀 **Developers** setting up a new Mac - Get productive in minutes, not hours
+- 🔄 **DevOps Engineers** - Automate tool updates across multiple machines
+- 🎓 **Students & Learners** - Focus on coding, not configuration
+- 🏢 **Teams** - Standardize development environments across your organization
+- 🤖 **CI/CD Pipelines** - Safe, non-interactive mode for automated setups
+
+## 🚀 Quick Start
+
+Get up and running in **2 minutes**:
 
 ```bash
 git clone https://github.com/26zl/MacOS_Basic_Setup.git
 cd MacOS_Basic_Setup
-./install.sh
+./install.sh        # Installs shell setup and system package managers (Oh My Zsh, Homebrew, MacPorts, Nix, mas)
+./dev-tools.sh      # Installs language version managers and language runtimes (optional)
 source ~/.zshrc
 ```
 
-That's it! You now have:
+**That's it!** You now have:
 
-- Automated tool updates (`update` command)
-- Multi-language support (Python, Node.js, Ruby, Rust, Go, Swift, Java)
-- Beautiful terminal with Powerlevel10k theme
-- Security recommendations and best practices
-- Database status checks (MySQL, MongoDB, PostgreSQL)
+- ✅ Automated tool updates (`update` command)
+- ✅ Support for multiple languages (Python via pyenv, Node.js via nvm, Ruby via chruby, Rust via rustup, Swift via swiftly, Go, Java, .NET)
+- ✅ Beautiful terminal with Powerlevel10k theme
+- ✅ Security recommendations and best practices
+- ✅ Database status checks (MySQL, MongoDB, PostgreSQL)
+
+**Note**: Language version managers (pyenv, nvm, chruby, rustup, swiftly) are not automatically installed. Run `./dev-tools.sh` to install them.
 
 **Daily usage:**
 
@@ -35,17 +58,19 @@ verify    # Check status of all installed tools
 versions  # Display versions of all tools
 ```
 
-## Features
+## 🎯 Features
 
-- **One Command Updates** - Update Homebrew, MacPorts, Nix, mas, Python, Node.js, Ruby, Rust, Go, Swift with `update`
-- **Multi-Language Support** - Python (pyenv), Node.js (nvm), Ruby (chruby), Rust (rustup), Swift (swiftly), Go, Java
-- **Package Managers** - Homebrew, MacPorts, Nix, mas (Mac App Store CLI), Conda, pipx, npm, gem, cargo
-- **Beautiful Terminal** - Oh My Zsh with Powerlevel10k, syntax highlighting, autosuggestions
-- **Performance Optimized** - Lazy loading and PATH cleanup for faster shell startup
-- **System Protection** - Automatically detects and protects macOS system Python/Ruby from modification
-- **Permanent Configuration** - Go toolchain upgrades via Homebrew are made permanent via `.zprofile`
-- **CI/Cron Safe** - Non-interactive mode support (`NONINTERACTIVE=1` or `CI=1`) - automatically answers "yes" to all prompts in CI mode for testing, skips potentially destructive operations in cron mode
-- **Smart Package Manager Detection** - Automatically sources nvm and chruby shell functions for non-interactive shells
+| Feature | Description |
+| ------- | ----------- |
+| 🔄 **One Command Updates** | Update Homebrew, MacPorts, Nix, mas, Python, Node.js, Ruby, Rust, Go, Swift, .NET with `update` |
+| 🌍 **Multi-Language Support** | Python (pyenv), Node.js (nvm), Ruby (chruby), Rust (rustup), Swift (swiftly), Go, Java, .NET |
+| 📦 **Package Managers** | Homebrew, MacPorts, Nix, mas (Mac App Store CLI), Conda, pipx, npm, gem, cargo |
+| 🎨 **Beautiful Terminal** | Oh My Zsh with Powerlevel10k, syntax highlighting, autosuggestions |
+| ⚡ **Performance Optimized** | Lazy loading and PATH cleanup for faster shell startup |
+| 🛡️ **System Protection** | Automatically detects and protects macOS system Python/Ruby from modification |
+| 🔧 **Permanent Configuration** | Go toolchain upgrades via Homebrew are made permanent via `.zprofile` |
+| 🤖 **CI/Cron Safe** | Non-interactive mode support (`NONINTERACTIVE=1` or `CI=1`). Note: MacPorts requires sudo and will be skipped in CI |
+| 🧠 **Smart Detection** | Automatically sources nvm and chruby shell functions for non-interactive shells |
 
 ## Installation
 
@@ -60,14 +85,59 @@ cd MacOS_Basic_Setup
 source ~/.zshrc
 ```
 
-**Security Note**: The installation script downloads external scripts (Homebrew, Oh My Zsh). For maximum security, review `install.sh` before running or install manually.
+**Security Note**: The installation scripts download external content. For maximum security, review the scripts before running:
+- `install.sh`: Downloads Homebrew installer, Oh My Zsh installer, Powerlevel10k (via git), zsh plugins (via git), MacPorts source tarball, Nix installer
+- `dev-tools.sh`: Downloads nvm installer, rustup installer, swiftly installer, Conda/Miniforge (via Homebrew), pipx (via Homebrew)
+
+**Security Features**:
+- ✅ Input validation in `_ask_user()` function (sanitizes and validates user input)
+- ✅ Selective error handling (critical components fail fast, optional components continue)
+- ✅ Safe directory navigation (uses saved paths instead of `cd -`)
+- ✅ HTTPS-only downloads with TLS verification (`--proto '=https' --tlsv1.2`)
+- ⚠️  Note: `eval` is used for pyenv/nvm initialization (standard practice, required for these tools)
 
 **Requirements**: Xcode Command Line Tools (required - will be installed automatically if missing), Git (included with Xcode CLT)
 
 **Installs**:
 
-- **Required**: Xcode Command Line Tools, Git, Oh My Zsh, Powerlevel10k, ZSH plugins, maintain-system script, zsh config
-- **Optional** (with interactive prompts): Homebrew, MacPorts, mas (Mac App Store CLI), Nix, FZF
+- **Required**: Xcode Command Line Tools, Git, Homebrew, Oh My Zsh, Powerlevel10k, ZSH plugins, maintain-system script, zsh config
+- **Optional** (with interactive prompts): MacPorts, mas (Mac App Store CLI), Nix, FZF
+
+**Note**: `install.sh` focuses on shell setup and system package managers. For language version managers and language runtimes, run `./dev-tools.sh` after installation.
+
+### Development Tools Installation
+
+After running `install.sh`, you can optionally install language development tools:
+
+```bash
+./dev-tools.sh          # Interactive installation
+./dev-tools.sh check    # Check what would be installed (dry-run)
+./dev-tools.sh test     # Test detection of all tools
+```
+
+**Testing**: Before installing, you can test if the script correctly detects your existing tools:
+```bash
+./dev-tools.sh test     # Shows which tools are detected
+./dev-tools.sh check    # Shows what would be installed (without installing)
+```
+
+This script will prompt you to install:
+
+**Language Package Managers:**
+- Conda/Miniforge (Python package manager)
+- pipx (isolated Python applications)
+
+**Language Version Managers & Runtimes:**
+- pyenv (Python version manager)
+- nvm (Node.js version manager)
+- chruby + ruby-install (Ruby version manager - requires ruby-install)
+- rustup (Rust toolchain manager)
+- swiftly (Swift toolchain manager)
+- Go (via Homebrew or manual install)
+- Java/OpenJDK (via Homebrew or manual install)
+- .NET SDK (via Homebrew or manual install)
+
+**Note**: Some tools require Homebrew to be installed first. The script will guide you through the installation process.
 
 ## Usage
 
@@ -84,7 +154,7 @@ versions  # Display versions of all tools
 **Package Managers:**
 
 - Homebrew (packages, cleanup, doctor check) - skipped if not installed (install via `./install.sh`)
-- MacPorts (ports tree, packages, cleanup) - can be installed from source via CLI in `install.sh`, skipped if not installed
+- MacPorts (ports tree, packages, cleanup) - can be installed from source via CLI in `install.sh`, skipped if not installed. **Note**: Requires sudo and will be skipped in CI/CD environments
 - Nix (profile/env updates, store cleanup, CLI upgrade checks, compaudit fixes) - secure installation with `--proto '=https' --tlsv1.2`, skipped if not installed
 - mas (Mac App Store apps) - updates App Store apps via [mas-cli](https://github.com/mas-cli/mas), uses per-user authentication (no sudo), skipped if not installed
 - Conda/Miniforge (conda and packages) - skipped if not installed
@@ -92,13 +162,14 @@ versions  # Display versions of all tools
 
 **Languages & Version Managers:**
 
-- Python (pyenv) - upgrades to latest, removes old versions, updates pip/setuptools/wheel (skips for system/Homebrew Python)
-- Node.js (nvm) - ensures latest LTS, removes old versions, updates global npm packages
-- Ruby (chruby) - installs latest, removes old versions, updates gems (skips for system Ruby)
-- Rust (rustup) - updates toolchains, sets stable as default, updates components
-- Swift (swiftly) - updates swiftly, installs/updates to latest stable release
-- Go - updates via Homebrew when brew-installed; otherwise shows latest release info and links
-- Java - version detection (manual installation required)
+- 🐍 **Python** (pyenv) - upgrades to latest, removes old versions, updates pip/setuptools/wheel (skips for system/Homebrew Python)
+- 📗 **Node.js** (nvm) - ensures latest LTS, removes old versions, updates global npm packages
+- 💎 **Ruby** (chruby) - installs latest via ruby-install (requires ruby-install), removes old versions, updates gems (skips for system Ruby)
+- 🦀 **Rust** (rustup) - updates toolchains, sets stable as default, updates components
+- 🕊️ **Swift** (swiftly) - updates swiftly, installs/updates to latest stable release
+- 🐹 **Go** - updates via Homebrew when brew-installed; otherwise shows latest release info and links
+- ☕ **Java** - version detection (manual installation required)
+- 🔷 **.NET** - updates SDK via Homebrew (if installed), updates workloads and global tools
 
 **Global Packages:**
 
@@ -118,60 +189,14 @@ versions  # Display versions of all tools
 - If you run `update` in a project directory, it will **not** modify project files (e.g., `package.json`, `Gemfile.lock`) - only global/system packages are updated
 - Database servers are detected and reported; this project does not install or upgrade databases for you
 
-### Nix Maintenance (macOS)
-
-Nix maintenance is integrated: `update` handles profile/env updates, store cleanup, CLI upgrade checks (manual command), and compaudit fixes. `verify` shows daemon status (running/stopped). `versions` shows package counts.
-
-**Installation**: Nix can be installed via `install.sh` with secure installation using `--proto '=https' --tlsv1.2`. The installer will prompt you to follow the installation carefully as it may require your password and additional setup steps.
-
-### MacPorts Installation
-
-MacPorts can be installed from source via CLI through `install.sh`. The installation process will:
-
-- Check for Xcode Command Line Tools (required)
-- Download the latest MacPorts source code
-- Build and install MacPorts from source
-- Requires sudo for installation
-
-**Note**: After MacPorts installation, you may need to open a new terminal window for PATH changes to take effect.
-
-### mas (Mac App Store CLI)
-
-mas allows you to update App Store apps from the command line. Installation via `install.sh` requires Homebrew. The `update` command uses per-user App Store authentication (no sudo required).
-
-**Note**: You must be signed in to the App Store for mas to work. Sign in via: `open -a 'App Store'`
-
-### Prerequisites
-
-**Required**:
-
-- macOS (Intel or Apple Silicon)
-- Zsh
-- Xcode Command Line Tools (installed automatically by `install.sh` if missing)
-- Internet connection
-
-**Optional** (installed via interactive prompts in `install.sh`):
-
-- Homebrew (recommended - enables many features)
-- MacPorts (alternative package manager)
-- mas (Mac App Store CLI - requires Homebrew)
-- Nix (functional package manager)
-
 **Behavior**:
 
-- `install.sh` will prompt you interactively to install optional package managers (Homebrew, MacPorts, mas, Nix)
-- `update` gracefully skips missing tools and refers to `install.sh` for installation
-- Missing package managers (MacPorts, Nix, mas, Conda, pipx) and version managers (pyenv, nvm, chruby, rustup, swiftly) are skipped
-- Go and Java require manual installation
-
-### File Paths
-
-All file paths follow standard public installation locations with fallback mechanisms:
-
-- **System paths**: `/usr/bin`, `/usr/sbin`, `/bin`, `/sbin`, `/usr/libexec` (standard macOS)
-- **Homebrew**: Dynamically detected via `_detect_brew_prefix()` (`/opt/homebrew` for Apple Silicon, `/usr/local` for Intel)
-- **Nix**: Standard paths (`/nix`, `/nix/var/nix/profiles/default/bin/nix`)
-- **Tools with fallbacks**: MySQL (`/usr/local/mysql`, Homebrew), Conda (`/usr/local/miniforge3`, `$HOME/miniforge3`, Homebrew), chruby (`/usr/local/share/chruby`, Homebrew, `$HOME/.local/share/chruby`), OpenJDK (Homebrew, `/usr/libexec/java_home`)
+- `install.sh` focuses on shell setup and system package managers (Oh My Zsh, terminal config, maintain-system script, Homebrew, MacPorts, Nix, mas)
+- `dev-tools.sh` installs language version managers and language runtimes (Conda, pipx, pyenv, nvm, chruby, rustup, swiftly, Go, Java, .NET)
+- `update` gracefully skips missing tools and refers to `install.sh` for system package managers (Homebrew, MacPorts, Nix, mas)
+- `verify` shows installation instructions: refers to `install.sh` for system package managers, `dev-tools.sh` for language tools
+- Missing package managers and version managers are skipped
+- MacPorts requires sudo and will be skipped in CI/CD environments (`CI=1` or `NONINTERACTIVE=1`)
 
 ### Configuration
 
@@ -186,120 +211,108 @@ Customize with environment variables:
 - `MAINTAIN_SYSTEM_CHRUBY_KEEP="ruby-3.4.6"` - Keep specific Ruby versions during cleanup
 - `MAINTAIN_SYSTEM_SWIFT_SNAPSHOTS=1` - Enable Swift development snapshot updates (default: stable releases only)
 
-## Supported Tools
+## 📋 Supported Tools
 
-**Package Managers**: Homebrew, MacPorts, Nix, mas (Mac App Store CLI), Conda/Miniforge, pipx
+### Package Managers
 
-**Languages**: Python (pyenv), Node.js (nvm), Ruby (chruby), Rust (rustup), Swift (swiftly), Go, Java
+- 🍺 **Homebrew** - macOS package manager
+- 📦 **MacPorts** - Alternative package manager (can be installed from source)
+- ❄️ **Nix** - Functional package manager
+- 🛒 **mas** - Mac App Store CLI
+- 🐍 **Conda/Miniforge** - Python package manager
+- 📦 **pipx** - Isolated Python applications
 
-**Databases**: MySQL, MongoDB, PostgreSQL
+### Languages & Version Managers
 
-**Other**: Docker, C/C++ (via Xcode)
+- 🐍 **Python** (pyenv) - Multiple Python versions
+- 📗 **Node.js** (nvm) - Node version management
+- 💎 **Ruby** (chruby) - Ruby version management
+- 🦀 **Rust** (rustup) - Rust toolchain manager
+- 🕊️ **Swift** (swiftly) - Swift toolchain manager
+- 🐹 **Go** - Go programming language
+- ☕ **Java** - Java runtime detection
+- 🔷 **.NET** - .NET SDK and tools
 
-## Terminal
+### Databases
 
-Includes: Oh My Zsh, Powerlevel10k, syntax highlighting, autosuggestions, FZF.
+- 🗄️ **MySQL** - Database server detection
+- 🍃 **MongoDB** - NoSQL database detection
+- 🐘 **PostgreSQL** - Relational database detection
 
-### Ghostty Terminal Setup
+### Other Tools
+
+- 🐳 **Docker** - Container platform
+- 🔨 **C/C++** - Via Xcode Command Line Tools
+
+## 🎨 Terminal
+
+The setup includes a beautiful terminal configuration with:
+
+- **Oh My Zsh** - Framework for managing Zsh configuration
+- **Powerlevel10k** - Fast and highly customizable prompt theme
+- **Syntax Highlighting** - Real-time command syntax highlighting
+- **Autosuggestions** - Suggests commands as you type based on history
+- **FZF** - Fuzzy finder for command history and file navigation
+
+### Ghostty Terminal Setup (Optional)
 
 To get the exact same terminal design as shown in the preview:
 
-1. **Install Ghostty** (if not already installed):
-
-   ```bash
-   brew install --cask ghostty
-   ```
-
-2. **Copy the configuration file**:
-
-   ```bash
-   cp "Ghostty config.txt" ~/.config/ghostty/config
-   ```
-
-3. **Set up the background image**:
-   - Place the background image from `background/image.png` in a location of your choice (e.g., `~/Pictures/terminal-bg.png`)
-   - Update the `background-image` path in `~/.config/ghostty/config` to point to your image location
-   - Or simply copy the entire `background/` directory and reference it from the config
-
-The Ghostty config includes:
-
-- Dark theme with custom colors
-- Background image support
-- Optimized font settings
-- Custom window behavior
+1. Install Ghostty: `brew install --cask ghostty`
+2. Create config directory: `mkdir -p ~/.config/ghostty`
+3. Copy config: `cp "Ghostty config.txt" ~/.config/ghostty/config`
+4. Copy background image: `cp background/terminal-background.png ~/.config/ghostty/terminal-background.png`
 
 See `Ghostty config.txt` for the full configuration.
 
-## Security
+## ❓ FAQ
 
-Recommended tools: [Objective-See](https://objective-see.org/tools.html) (Lulu, KnockKnock, Dylib Scanner, Oversight). Guides: [macOS Security Guide](https://github.com/drduh/macOS-Security-and-Privacy-Guide), [Privacy Guide](https://anonymousplanet.org/guide/).
+### Will this modify my project files?
 
-## Useful Tools
+No! This tool only updates **global/system packages**. Project-specific files (e.g., `package.json`, `go.mod`, `requirements.txt`) are never modified. It's a system maintenance tool, not a project dependency manager.
 
-**Cybersecurity Tools**: Install via Homebrew/MacPorts/Nix for easy maintenance. For Python tools, use `pipx` instead of `pip` for isolation.
+### Is it safe to run in CI/CD?
 
-**Virtualization**: VMware Fusion Professional 25H2, UTM
+Yes! Set `NONINTERACTIVE=1` or `CI=1` to automatically skip all prompts and potentially destructive operations. The project is designed to be safe for automated runs.
 
-**System Cleanup**: [Mole](https://github.com/tw93/Mole) (`brew install mole`) - deep clean, app uninstaller, disk analyzer
+### Does it work on both Intel and Apple Silicon?
 
-**Utilities**: [Pearcleaner](https://github.com/alienator88/Pearcleaner), [Keka](https://github.com/aonez/Keka), [Maccy](https://github.com/p0deje/Maccy), [Ice](https://github.com/jordanbaird/Ice), [BetterDisplay](https://github.com/waydabber/BetterDisplay)
+Yes! The project automatically detects your Mac architecture and uses the correct paths (e.g., `/opt/homebrew` for Apple Silicon, `/usr/local` for Intel).
 
-**System Cleanup Tips** (use with caution):
+### What if I don't have Homebrew/MacPorts/Nix installed?
 
-- Clear cache: `~/Library/Caches`
-- Clear logs: `/var/log` (safer: `sudo log collect --last 1d`)
-- Remove languages: `/Library/Languages` (keep primary + English)
+No problem! The `update` command gracefully skips missing tools and refers to `install.sh` for system package managers (Homebrew, MacPorts, Nix, mas) or `dev-tools.sh` for language tools (pyenv, nvm, chruby, rustup, swiftly, Go, Java, .NET).
 
-## Tips
+### Can I customize the cleanup behavior?
 
-**macOS**: `Cmd + Space` (Spotlight), `Cmd + Shift + .` (show hidden files), `Ctrl + R` (history search), `Cmd + K` (clear terminal)
+Yes! Use environment variables like `MAINTAIN_SYSTEM_CLEAN_PYENV=0` to disable cleanup, or `MAINTAIN_SYSTEM_PYENV_KEEP="3.11.8"` to keep specific versions. See the [Configuration](#configuration) section for all options.
 
-**Development**: Use FZF for navigation, virtual environments for Python, `nvm` for Node.js versions
+## 🤝 Contributing
 
-**Maintenance**: Run `update` weekly, use `df -h` or Mole for disk space, run `p10k configure` to customize prompt
+Contributions are welcome! Before submitting a PR:
 
-**Troubleshooting**: Check PATH with `echo $PATH`, run `update` to fix broken symlinks
-
-## Requirements
-
-**Required**:
-- macOS (Intel or Apple Silicon)
-- Zsh
-- Xcode Command Line Tools (installed automatically by `install.sh` if missing)
-- Internet connection
-
-**Optional** (installed via interactive prompts):
-
-- Homebrew (recommended)
-- MacPorts
-- mas (Mac App Store CLI - requires Homebrew)
-- Nix
-
-**Note**: `install.sh` will prompt you to install optional package managers. In non-interactive mode (CI/cron), prompts are automatically answered "yes" for testing purposes.
-
-## Testing
-
-```bash
-./quick-test.sh  # Quick syntax test
-./install.sh     # Full test (backup ~/.zshrc first!)
-```
-
-## Contributing
-
-Contributions welcome! Before submitting a PR: run `./quick-test.sh`, ensure ShellCheck passes, verify no secrets, test on Intel and Apple Silicon.
+1. Run `./quick-test.sh` to verify syntax
+2. Ensure ShellCheck passes
+3. Verify no secrets are included
+4. Test on both Intel and Apple Silicon Macs
 
 **CI/CD**: ShellCheck, Gitleaks (secrets), Trivy (security), syntax checks, comprehensive macOS functionality tests. See `.github/workflows/` for details.
 
-**CI/Cron Safety**: The project is designed to be safe for automated runs. Set `NONINTERACTIVE=1` or `CI=1` to automatically skip all prompts and potentially destructive operations. All interactive prompts respect these environment variables.
-
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Disclaimer
+## ⚠️ Disclaimer
 
 This is a personal setup configuration. Use at your own risk and always do your own research before applying system-wide changes.
 
 ---
 
+**⭐ If this project helped you, please consider giving it a star! ⭐**
+
+[![GitHub stars](https://img.shields.io/github/stars/26zl/MacOS_Basic_Setup?style=social&label=Star)](https://github.com/26zl/MacOS_Basic_Setup/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/26zl/MacOS_Basic_Setup?style=social&label=Fork)](https://github.com/26zl/MacOS_Basic_Setup/fork)
+
 **Note**: This configuration works on both Intel and Apple Silicon Macs.
+
+Made with ❤️ for the macOS developer community

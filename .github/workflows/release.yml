@@ -164,35 +164,46 @@ jobs:
           PACKAGE_NAME="MacOS-Dev-Setup-${VERSION}"
           mkdir -p "$PACKAGE_NAME"
           
-          # Copy necessary files
-          cp install.sh "$PACKAGE_NAME/"
-          cp zsh.sh "$PACKAGE_NAME/"
-          cp maintain-system.sh "$PACKAGE_NAME/"
-          cp README.md "$PACKAGE_NAME/"
-          cp LICENSE "$PACKAGE_NAME/"
-          cp .gitignore "$PACKAGE_NAME/"
+          # Copy all files and directories except .git, .github/workflows, and build artifacts
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name '.git' \
+            ! -name '.github' \
+            ! -name "$PACKAGE_NAME" \
+            ! -name '*.zip' \
+            ! -name '*.sha256' \
+            ! -name '.DS_Store' \
+            ! -name '__MACOSX' \
+            ! -name '._*' \
+            -exec cp -r {} "$PACKAGE_NAME/" \;
           
-          # Copy scripts directory
-          if [ -d "scripts" ]; then
-            cp -r scripts "$PACKAGE_NAME/"
+          # Copy .github directory but exclude workflows subdirectory
+          if [ -d ".github" ]; then
+            mkdir -p "$PACKAGE_NAME/.github"
+            find .github -mindepth 1 -maxdepth 1 ! -name 'workflows' -exec cp -r {} "$PACKAGE_NAME/.github/" \;
           fi
           
-          # Copy background directory if it exists
-          if [ -d "background" ]; then
-            cp -r background "$PACKAGE_NAME/"
-          fi
+          # Remove macOS system files from the package directory
+          find "$PACKAGE_NAME" -name '.DS_Store' -delete
+          find "$PACKAGE_NAME" -name '__MACOSX' -type d -exec rm -rf {} + 2>/dev/null || true
+          find "$PACKAGE_NAME" -name '._*' -delete
+          find "$PACKAGE_NAME" -name '.AppleDouble' -type d -exec rm -rf {} + 2>/dev/null || true
+          find "$PACKAGE_NAME" -name '.LSOverride' -delete
           
-          # Copy other useful files
-          if [ -f "quick-test.sh" ]; then
-            cp quick-test.sh "$PACKAGE_NAME/"
-          fi
-          
-          if [ -f "Ghostty config.txt" ]; then
-            cp "Ghostty config.txt" "$PACKAGE_NAME/"
-          fi
-          
-          # Create zip file
-          zip -r "${PACKAGE_NAME}.zip" "$PACKAGE_NAME"
+          # Create zip file (exclude system files and build artifacts)
+          cd "$PACKAGE_NAME"
+          zip -r "../${PACKAGE_NAME}.zip" . \
+            -x "*.git*" \
+            -x "*.DS_Store" \
+            -x "*__MACOSX*" \
+            -x "*._*" \
+            -x "*.AppleDouble*" \
+            -x "*__pycache__*" \
+            -x "*.pyc" \
+            -x "*.pyo" \
+            -x "*.swp" \
+            -x "*.swo" \
+            -x "*~"
+          cd ..
           
           # Create checksums
           sha256sum "${PACKAGE_NAME}.zip" > "${PACKAGE_NAME}.zip.sha256"
@@ -217,15 +228,24 @@ jobs:
             
             ### Installation
             1. Download and extract the zip file
-            2. Run `./install.sh` in the extracted directory
+            2. Run `./install.sh` for shell setup (Oh My Zsh, terminal config)
+            3. (Optional) Run `./dev-tools.sh` to install package managers and language tools
             
             ### Files included
-            - `install.sh` - Main installation script
+            All project files are included in this release except GitHub workflow files (`.github/workflows/`).
+            
+            Main files:
+            - `install.sh` - Shell setup installation script
+            - `dev-tools.sh` - Development tools installation script (language package managers, version managers, and language runtimes)
             - `zsh.sh` - Zsh configuration
             - `maintain-system.sh` - System maintenance script
             - `scripts/` - Additional maintenance scripts
+            - `background/` - Terminal background images
             - `README.md` - Documentation
             - `LICENSE` - License file
+            - `Ghostty config.txt` - Terminal configuration
+            - `quick-test.sh` - Quick test script
+            - And all other project files
             
             ### Checksums
             ```

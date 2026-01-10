@@ -1,11 +1,20 @@
+# macOS system files
 .DS_Store
+.DS_Store?
 .AppleDouble
 .LSOverride
+__MACOSX/
+._*
+.Spotlight-V100
+.Trashes
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
 .cursor/
 .vscode/
-
-# Thumbnails
-._*
 
 # macOS settings
 Icon\r
@@ -53,7 +62,6 @@ logs/
 *.tmp
 *.bak
 *.orig
-.DS_Store?
 Thumbs.db
 
 # GitHub Actions artifacts
