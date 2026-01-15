@@ -765,9 +765,18 @@ _go_update_toolchain() {
 
   if [[ "$brew_go" == "true" ]]; then
     if [[ "$go_updated" == "true" ]]; then
-      echo "  ${BLUE}INFO:${NC} Homebrew manages Go and will handle updates automatically"
+      if [[ "$go_update_available" == "true" && -n "$latest_version" && "$latest_version" != "$current_version" ]]; then
+        echo "  ${BLUE}INFO:${NC} Homebrew updated Go to $current_version; upstream $latest_version is available (manual install or wait for Homebrew)"
+      else
+        echo "  ${BLUE}INFO:${NC} Homebrew manages Go and will handle updates automatically"
+      fi
     else
-      echo "  ${BLUE}INFO:${NC} Go is up to date via Homebrew ($current_version)"
+      if [[ "$go_update_available" == "true" && -n "$latest_version" ]]; then
+        echo "  ${BLUE}INFO:${NC} New Go release available upstream: $latest_version (Homebrew currently provides $current_version)"
+        echo "  ${BLUE}INFO:${NC} Options: wait for Homebrew to update, or install manually: https://go.dev/dl/"
+      else
+        echo "  ${BLUE}INFO:${NC} Go is up to date via Homebrew ($current_version)"
+      fi
     fi
   else
     if [[ -n "$latest_version" && "$latest_version" != "$current_version" ]]; then
@@ -986,25 +995,110 @@ update() {
         # Default to "already up to date" if output is minimal (indicates no changes)
         echo "  ${BLUE}INFO:${NC} Homebrew is already up to date"
       fi
+      # Always show what Homebrew reported so users can see tap changes
+      echo "$brew_update_output" | sed 's/^/    /'
+      
+      # Show what is queued for upgrade (formulae and casks)
+      local brew_outdated_formula brew_outdated_cask
+      brew_outdated_formula="$(brew outdated --verbose 2>/dev/null || true)"
+      brew_outdated_cask="$(brew outdated --cask --greedy --verbose 2>/dev/null || true)"
+      local brew_outdated_formula_count=0
+      local brew_outdated_cask_count=0
+      [[ -n "$brew_outdated_formula" ]] && brew_outdated_formula_count=$(echo "$brew_outdated_formula" | grep -E '^[[:alnum:]]' | wc -l | tr -d ' ' || echo 0)
+      [[ -n "$brew_outdated_cask" ]] && brew_outdated_cask_count=$(echo "$brew_outdated_cask" | grep -E '^[[:alnum:]]' | wc -l | tr -d ' ' || echo 0)
+      local brew_outdated_total=$((brew_outdated_formula_count + brew_outdated_cask_count))
+      local brew_had_pending=false
+      [[ "$brew_outdated_total" -gt 0 ]] && brew_had_pending=true
+      if [[ -n "$brew_outdated_formula" || -n "$brew_outdated_cask" ]]; then
+        echo "  Pending Homebrew updates:"
+        if [[ -n "$brew_outdated_formula" ]]; then
+          echo "    Formulae:"
+          echo "$brew_outdated_formula" | sed 's/^/      /'
+        fi
+        if [[ -n "$brew_outdated_cask" ]]; then
+          echo "    Casks:"
+          echo "$brew_outdated_cask" | sed 's/^/      /'
+        fi
+      else
+        echo "  ${BLUE}INFO:${NC} No pending Homebrew updates before upgrade"
+      fi
     else
       brew_errors+=("update")
       echo "  ${RED}WARNING:${NC} Homebrew update failed"
     fi
     
-    local brew_upgrade_output=""
-    brew_upgrade_output="$(brew upgrade 2>&1 || echo "FAILED")"
-    if [[ "$brew_upgrade_output" != *"FAILED"* ]]; then
+    local brew_formula_upgraded=false
+    local brew_cask_upgraded=false
+    local brew_upgrade_formula_output=""
+    brew_upgrade_formula_output="$(brew upgrade 2>&1 || echo "FAILED")"
+    if [[ "$brew_upgrade_formula_output" != *"FAILED"* ]]; then
       # Check if output indicates packages were actually upgraded
-      if echo "$brew_upgrade_output" | grep -qiE "(==> Upgrading|==> Pouring|Upgraded|changed)"; then
-        echo "  Homebrew packages upgraded successfully"
-      elif echo "$brew_upgrade_output" | grep -qiE "(Already up-to-date|Nothing to upgrade|All formulae are up to date)"; then
-        echo "  ${BLUE}INFO:${NC} Homebrew packages are already up to date"
+      if echo "$brew_upgrade_formula_output" | grep -qiE "(Already up-to-date|Nothing to upgrade|All formulae are up to date|No outdated packages|0 outdated packages)"; then
+        echo "  ${BLUE}INFO:${NC} Homebrew formulae are already up to date"
       else
-        echo "  ${BLUE}INFO:${NC} Homebrew packages checked (may already be up to date)"
+        # Show concise details of what was upgraded
+        local brew_upgrade_summary=""
+        brew_upgrade_summary="$(echo "$brew_upgrade_formula_output" | grep -E '^(==> (Upgrading|Installing|Pouring)|^Upgraded |^[[:alnum:]][[:alnum:].+@-]* +[0-9][^ ]* +-> +[0-9])' || true)"
+        if [[ -n "$brew_upgrade_summary" ]]; then
+          brew_formula_upgraded=true
+          echo "  Homebrew formulae upgraded successfully"
+          echo "$brew_upgrade_summary" | sed 's/^/    /'
+        else
+          echo "  ${BLUE}INFO:${NC} Homebrew formulae checked (no changes detected)"
+          echo "$brew_upgrade_formula_output" | sed 's/^/    /'
+        fi
       fi
     else
-      brew_errors+=("upgrade")
-      echo "  ${RED}WARNING:${NC} Some Homebrew packages failed to upgrade"
+      brew_errors+=("upgrade_formula")
+      echo "  ${RED}WARNING:${NC} Homebrew formula upgrade failed"
+    fi
+
+    # Upgrade casks greedily so GUI apps are updated automatically
+    local brew_upgrade_cask_output=""
+    brew_upgrade_cask_output="$(brew upgrade --cask --greedy 2>&1 || echo "FAILED")"
+    if [[ "$brew_upgrade_cask_output" != *"FAILED"* ]]; then
+      if echo "$brew_upgrade_cask_output" | grep -qiE "(Already up-to-date|Nothing to upgrade|All casks are up to date|No outdated casks|0 outdated casks)"; then
+        echo "  ${BLUE}INFO:${NC} Homebrew casks are already up to date"
+      else
+        local brew_upgrade_cask_summary=""
+        brew_upgrade_cask_summary="$(echo "$brew_upgrade_cask_output" | grep -E '^(==> (Upgrading|Installing|Pouring|Downloading)|^Upgraded |^[[:alnum:]][[:alnum:].+@-]* +[0-9][^ ]* +-> +[0-9])' || true)"
+        if [[ -n "$brew_upgrade_cask_summary" ]]; then
+          brew_cask_upgraded=true
+          echo "  Homebrew casks upgraded successfully"
+          echo "$brew_upgrade_cask_summary" | sed 's/^/    /'
+        else
+          echo "  ${BLUE}INFO:${NC} Homebrew casks checked (no changes detected)"
+          echo "$brew_upgrade_cask_output" | sed 's/^/    /'
+        fi
+      fi
+    else
+      brew_errors+=("upgrade_cask")
+      echo "  ${RED}WARNING:${NC} Homebrew cask upgrade failed"
+    fi
+
+    # If we started with pending items, re-check to confirm everything is updated
+    if [[ "${brew_outdated_total:-0}" -gt 0 ]]; then
+      local brew_outdated_formula_after brew_outdated_cask_after
+      brew_outdated_formula_after="$(brew outdated --verbose 2>/dev/null || true)"
+      brew_outdated_cask_after="$(brew outdated --cask --greedy --verbose 2>/dev/null || true)"
+      local brew_outdated_after_count=0
+      [[ -n "$brew_outdated_formula_after" ]] && brew_outdated_after_count=$((brew_outdated_after_count + $(echo "$brew_outdated_formula_after" | grep -E '^[[:alnum:]]' | wc -l | tr -d ' ' || echo 0)))
+      [[ -n "$brew_outdated_cask_after" ]] && brew_outdated_after_count=$((brew_outdated_after_count + $(echo "$brew_outdated_cask_after" | grep -E '^[[:alnum:]]' | wc -l | tr -d ' ' || echo 0)))
+      if [[ $brew_outdated_after_count -gt 0 ]]; then
+        echo "  ${BLUE}INFO:${NC} Some Homebrew items remain pending after upgrade (check pinned/held packages):"
+        if [[ -n "$brew_outdated_formula_after" ]]; then
+          echo "    Formulae:"
+          echo "$brew_outdated_formula_after" | sed 's/^/      /'
+        fi
+        if [[ -n "$brew_outdated_cask_after" ]]; then
+          echo "    Casks:"
+          echo "$brew_outdated_cask_after" | sed 's/^/      /'
+        fi
+      elif [[ "$brew_formula_upgraded" == true || "$brew_cask_upgraded" == true ]]; then
+        echo "  Homebrew packages upgraded successfully"
+      fi
+    elif [[ "$brew_formula_upgraded" == true || "$brew_cask_upgraded" == true ]]; then
+      echo "  Homebrew packages upgraded successfully"
     fi
     
     brew cleanup 2>/dev/null || brew_errors+=("cleanup")
