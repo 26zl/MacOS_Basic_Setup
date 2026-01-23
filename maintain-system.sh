@@ -982,8 +982,10 @@ update() {
     local brew_errors=()
     
     local brew_update_output=""
-    brew_update_output="$(brew update 2>&1 || echo "FAILED")"
-    if [[ "$brew_update_output" != *"FAILED"* ]]; then
+    local brew_update_exit_code=0
+    brew_update_output="$(brew update 2>&1)" || brew_update_exit_code=$?
+
+    if [[ $brew_update_exit_code -eq 0 ]]; then
       # Check if output indicates an actual update occurred
       # brew update shows "Updated X tap(s)" or "==> Updated Formulae" when something changed
       # "Already up-to-date." means no update occurred
@@ -1030,8 +1032,10 @@ update() {
     local brew_formula_upgraded=false
     local brew_cask_upgraded=false
     local brew_upgrade_formula_output=""
-    brew_upgrade_formula_output="$(brew upgrade 2>&1 || echo "FAILED")"
-    if [[ "$brew_upgrade_formula_output" != *"FAILED"* ]]; then
+    local brew_upgrade_formula_exit_code=0
+    brew_upgrade_formula_output="$(brew upgrade 2>&1)" || brew_upgrade_formula_exit_code=$?
+
+    if [[ $brew_upgrade_formula_exit_code -eq 0 ]]; then
       # Check if output indicates packages were actually upgraded
       if echo "$brew_upgrade_formula_output" | grep -qiE "(Already up-to-date|Nothing to upgrade|All formulae are up to date|No outdated packages|0 outdated packages)"; then
         echo "  ${BLUE}INFO:${NC} Homebrew formulae are already up to date"
@@ -1045,18 +1049,19 @@ update() {
           echo "$brew_upgrade_summary" | sed 's/^/    /'
         else
           echo "  ${BLUE}INFO:${NC} Homebrew formulae checked (no changes detected)"
-          echo "$brew_upgrade_formula_output" | sed 's/^/    /'
         fi
       fi
     else
       brew_errors+=("upgrade_formula")
-      echo "  ${RED}WARNING:${NC} Homebrew formula upgrade failed"
+      echo "  ${RED}WARNING:${NC} Homebrew formula upgrade failed (exit code: $brew_upgrade_formula_exit_code)"
     fi
 
     # Upgrade casks greedily so GUI apps are updated automatically
     local brew_upgrade_cask_output=""
-    brew_upgrade_cask_output="$(brew upgrade --cask --greedy 2>&1 || echo "FAILED")"
-    if [[ "$brew_upgrade_cask_output" != *"FAILED"* ]]; then
+    local brew_upgrade_cask_exit_code=0
+    brew_upgrade_cask_output="$(brew upgrade --cask --greedy 2>&1)" || brew_upgrade_cask_exit_code=$?
+
+    if [[ $brew_upgrade_cask_exit_code -eq 0 ]]; then
       if echo "$brew_upgrade_cask_output" | grep -qiE "(Already up-to-date|Nothing to upgrade|All casks are up to date|No outdated casks|0 outdated casks)"; then
         echo "  ${BLUE}INFO:${NC} Homebrew casks are already up to date"
       else
@@ -1068,12 +1073,11 @@ update() {
           echo "$brew_upgrade_cask_summary" | sed 's/^/    /'
         else
           echo "  ${BLUE}INFO:${NC} Homebrew casks checked (no changes detected)"
-          echo "$brew_upgrade_cask_output" | sed 's/^/    /'
         fi
       fi
     else
       brew_errors+=("upgrade_cask")
-      echo "  ${RED}WARNING:${NC} Homebrew cask upgrade failed"
+      echo "  ${RED}WARNING:${NC} Homebrew cask upgrade failed (exit code: $brew_upgrade_cask_exit_code)"
     fi
 
     # If we started with pending items, re-check to confirm everything is updated
@@ -1138,8 +1142,10 @@ update() {
       local port_errors=()
     
     local port_output=""
-    port_output="$(sudo port -v selfupdate 2>&1 || echo "FAILED")"
-    if [[ "$port_output" != *"FAILED"* ]]; then
+    local port_exit_code=0
+    port_output="$(sudo port -v selfupdate 2>&1)" || port_exit_code=$?
+
+    if [[ $port_exit_code -eq 0 ]]; then
       # Check if output indicates an actual update occurred
       # MacPorts shows "Adding port" when new ports are added
       # "Ports successfully parsed: X" where X > 0 means new ports were added
@@ -1159,12 +1165,14 @@ update() {
       fi
     else
       port_errors+=("selfupdate")
-      echo "  ${RED}WARNING:${NC} MacPorts selfupdate failed"
+      echo "  ${RED}WARNING:${NC} MacPorts selfupdate failed (exit code: $port_exit_code)"
     fi
-    
+
     local port_upgrade_output=""
-    port_upgrade_output="$(sudo port -N upgrade outdated 2>&1 || echo "FAILED")"
-    if [[ "$port_upgrade_output" != *"FAILED"* ]]; then
+    local port_upgrade_exit_code=0
+    port_upgrade_output="$(sudo port -N upgrade outdated 2>&1)" || port_upgrade_exit_code=$?
+
+    if [[ $port_upgrade_exit_code -eq 0 ]]; then
       # Check if output indicates packages were actually upgraded
       # "Nothing to upgrade" means no packages were upgraded
       if echo "$port_upgrade_output" | grep -qiE "(Nothing to upgrade|All ports are up to date|No packages to upgrade)"; then
@@ -1176,7 +1184,7 @@ update() {
       fi
     else
       port_errors+=("upgrade")
-      echo "  ${RED}WARNING:${NC} Some MacPorts packages failed to upgrade"
+      echo "  ${RED}WARNING:${NC} Some MacPorts packages failed to upgrade (exit code: $port_upgrade_exit_code)"
     fi
     
     sudo port reclaim -f --disable-reminders 2>/dev/null || port_errors+=("reclaim")
@@ -1778,8 +1786,10 @@ update() {
   if command -v npm >/dev/null 2>&1; then
     # Update npm itself
     local npm_install_output=""
-    npm_install_output="$(npm install -g npm 2>&1 || echo "FAILED")"
-    if [[ "$npm_install_output" != *"FAILED"* ]]; then
+    local npm_install_exit_code=0
+    npm_install_output="$(npm install -g npm 2>&1)" || npm_install_exit_code=$?
+
+    if [[ $npm_install_exit_code -eq 0 ]]; then
       # Check if npm was actually updated
       if echo "$npm_install_output" | grep -qiE "(added|updated|upgraded|changed [0-9]+ packages)"; then
         # Only show success if it's not just metadata changes
@@ -1787,12 +1797,16 @@ update() {
           echo "  npm updated successfully"
         fi
       fi
+    else
+      echo "  ${RED}WARNING:${NC} npm install failed (exit code: $npm_install_exit_code)"
     fi
-    
+
     # Update global packages
     local npm_update_output=""
-    npm_update_output="$(npm update -g 2>&1 || echo "FAILED")"
-    if [[ "$npm_update_output" != *"FAILED"* ]]; then
+    local npm_update_exit_code=0
+    npm_update_output="$(npm update -g 2>&1)" || npm_update_exit_code=$?
+
+    if [[ $npm_update_exit_code -eq 0 ]]; then
       # Check if packages were actually updated
       # "changed X packages" can be just metadata, not actual upgrades
       # Look for actual upgrade indicators
@@ -1806,8 +1820,10 @@ update() {
       else
         echo "  ${BLUE}INFO:${NC} npm global packages checked (may already be up to date)"
       fi
+    else
+      echo "  ${RED}WARNING:${NC} npm update failed (exit code: $npm_update_exit_code)"
     fi
-    
+
     # Refresh command hash table after Node.js package updates
     hash -r 2>/dev/null || true
   fi
@@ -1824,8 +1840,10 @@ update() {
     else
       echo "${GREEN}[RubyGems]${NC} Updating and cleaning gems..."
       local gem_update_output=""
-      gem_update_output="$(gem update --silent --no-document 2>&1 || echo "FAILED")"
-      if [[ "$gem_update_output" != *"FAILED"* ]]; then
+      local gem_update_exit_code=0
+      gem_update_output="$(gem update --silent --no-document 2>&1)" || gem_update_exit_code=$?
+
+      if [[ $gem_update_exit_code -eq 0 ]]; then
         # Check if output indicates gems were actually updated
         if echo "$gem_update_output" | grep -qiE "(updating|installing|upgraded|updated|Successfully)"; then
           echo "  Gems updated successfully"
@@ -1835,7 +1853,7 @@ update() {
           echo "  ${BLUE}INFO:${NC} Gems checked (may already be up to date)"
         fi
       else
-        echo "  ${RED}WARNING:${NC} gem update failed"
+        echo "  ${RED}WARNING:${NC} gem update failed (exit code: $gem_update_exit_code)"
       fi
       
       local gem_cleanup_output=""
@@ -1973,8 +1991,10 @@ update() {
     # Update swiftly itself
     echo "  Updating swiftly..."
     local swiftly_output=""
-    swiftly_output="$({ printf "y\ny\ny\ny\ny\n"; cat /dev/null; } | swiftly self-update 2>&1 || echo "FAILED")"
-    if [[ "$swiftly_output" != *"FAILED"* ]] && [[ "$swiftly_output" != *"error"* ]] && [[ "$swiftly_output" != *"Error"* ]]; then
+    local swiftly_exit_code=0
+    swiftly_output="$({ printf "y\ny\ny\ny\ny\n"; cat /dev/null; } | swiftly self-update 2>&1)" || swiftly_exit_code=$?
+
+    if [[ $swiftly_exit_code -eq 0 ]] && [[ "$swiftly_output" != *"error"* ]] && [[ "$swiftly_output" != *"Error"* ]]; then
       # Check if output indicates an actual update occurred
       # swiftly self-update shows "Downloading" or "Installing" when updating
       if echo "$swiftly_output" | grep -qiE "(downloading|installing|updated to|upgraded to|new version)"; then
@@ -2115,8 +2135,10 @@ update() {
     # Update rustup itself first
     echo "  Updating rustup..."
     local rustup_output=""
-    rustup_output="$(rustup self update 2>&1 || echo "FAILED")"
-    if [[ "$rustup_output" != *"FAILED"* ]]; then
+    local rustup_exit_code=0
+    rustup_output="$(rustup self update 2>&1)" || rustup_exit_code=$?
+
+    if [[ $rustup_exit_code -eq 0 ]]; then
       # Check if output indicates an actual update occurred
       if echo "$rustup_output" | grep -qiE "(updated|upgraded|installed|new version)"; then
         echo "    rustup updated successfully"
@@ -2127,14 +2149,16 @@ update() {
       fi
     else
       rust_errors+=("rustup_self")
-      echo "    ${RED}WARNING:${NC} rustup self update failed"
+      echo "    ${RED}WARNING:${NC} rustup self update failed (exit code: $rustup_exit_code)"
     fi
-    
+
     # Update all installed toolchains
     echo "  Updating all Rust toolchains..."
     local toolchain_output=""
-    toolchain_output="$(rustup update 2>&1 || echo "FAILED")"
-    if [[ "$toolchain_output" != *"FAILED"* ]]; then
+    local toolchain_exit_code=0
+    toolchain_output="$(rustup update 2>&1)" || toolchain_exit_code=$?
+
+    if [[ $toolchain_exit_code -eq 0 ]]; then
       # Check if output indicates an actual update occurred
       if echo "$toolchain_output" | grep -qiE "(updated|upgraded|installed|new version)"; then
         echo "    Toolchains updated successfully"
@@ -2145,7 +2169,7 @@ update() {
       fi
     else
       rust_errors+=("toolchains")
-      echo "    ${RED}WARNING:${NC} Toolchain update failed"
+      echo "    ${RED}WARNING:${NC} Toolchain update failed (exit code: $toolchain_exit_code)"
     fi
 
     # Set default toolchain to stable
@@ -2188,8 +2212,10 @@ update() {
       if [[ -n "$brew_dotnet_info" ]]; then
         echo "  Updating .NET via Homebrew..."
         local brew_upgrade_output=""
-        brew_upgrade_output="$(brew upgrade dotnet 2>&1 || echo "FAILED")"
-        if [[ "$brew_upgrade_output" != *"FAILED"* ]]; then
+        local brew_upgrade_exit_code=0
+        brew_upgrade_output="$(brew upgrade dotnet 2>&1)" || brew_upgrade_exit_code=$?
+
+        if [[ $brew_upgrade_exit_code -eq 0 ]]; then
           if echo "$brew_upgrade_output" | grep -qiE "(Upgrading|==> Pouring|Upgraded|changed)"; then
             echo "    SUCCESS: .NET updated via Homebrew"
           elif echo "$brew_upgrade_output" | grep -qiE "(Already up-to-date|Nothing to upgrade)"; then
@@ -2199,7 +2225,7 @@ update() {
           fi
         else
           dotnet_errors+=("brew_upgrade")
-          echo "    ${RED}WARNING:${NC} Failed to update .NET via Homebrew"
+          echo "    ${RED}WARNING:${NC} Failed to update .NET via Homebrew (exit code: $brew_upgrade_exit_code)"
         fi
       fi
     fi
@@ -2207,8 +2233,10 @@ update() {
     # Update .NET workloads
     echo "  Updating .NET workloads..."
     local workload_output=""
-    workload_output="$(dotnet workload update 2>&1 || echo "FAILED")"
-    if [[ "$workload_output" != *"FAILED"* ]]; then
+    local workload_exit_code=0
+    workload_output="$(dotnet workload update 2>&1)" || workload_exit_code=$?
+
+    if [[ $workload_exit_code -eq 0 ]]; then
       if echo "$workload_output" | grep -qiE "(Updated|Installed|Successfully)"; then
         echo "    SUCCESS: .NET workloads updated"
       elif echo "$workload_output" | grep -qiE "(already|up to date|No updates)"; then
@@ -2220,25 +2248,28 @@ update() {
       # Workload update failure is not critical - workloads may not be installed
       echo "    ${BLUE}INFO:${NC} No workloads to update or workload update not needed"
     fi
-    
+
     # Update global .NET tools
     echo "  Updating global .NET tools..."
     # First check if there are any global tools installed
     local tool_list_output=""
-    tool_list_output="$(dotnet tool list --global 2>&1 || echo "FAILED")"
+    local tool_list_exit_code=0
+    tool_list_output="$(dotnet tool list --global 2>&1)" || tool_list_exit_code=$?
     local tool_count=0
-    if [[ "$tool_list_output" != *"FAILED"* ]]; then
+    if [[ $tool_list_exit_code -eq 0 ]]; then
       # Count lines that contain package info (skip header lines)
       tool_count=$(echo "$tool_list_output" | grep -E "^[a-zA-Z]" | wc -l | tr -d ' ' || echo "0")
     fi
-    
+
     if [[ "$tool_count" -eq 0 ]]; then
       echo "    ${BLUE}INFO:${NC} No global .NET tools installed"
     else
       echo "    Found $tool_count global .NET tool(s), updating..."
       local tool_update_output=""
-      tool_update_output="$(dotnet tool update --global --all 2>&1 || echo "FAILED")"
-      if [[ "$tool_update_output" != *"FAILED"* ]]; then
+      local tool_update_exit_code=0
+      tool_update_output="$(dotnet tool update --global --all 2>&1)" || tool_update_exit_code=$?
+
+      if [[ $tool_update_exit_code -eq 0 ]]; then
         if echo "$tool_update_output" | grep -qiE "(Updated|Upgraded|Installed|Successfully)"; then
           echo "    SUCCESS: Global .NET tools updated"
         elif echo "$tool_update_output" | grep -qiE "(already|up to date|No updates)"; then
@@ -2248,6 +2279,7 @@ update() {
         fi
       else
         dotnet_errors+=("tool_update")
+        echo "    ${RED}WARNING:${NC} Global .NET tools update failed (exit code: $tool_update_exit_code)"
         echo "    ${RED}WARNING:${NC} Failed to update global .NET tools"
       fi
     fi
@@ -2272,11 +2304,12 @@ update() {
     
     # Check for outdated apps
     local outdated_output
-    outdated_output=$(mas outdated 2>&1 || echo "FAILED")
-    
-    if [[ "$outdated_output" == "FAILED" ]] || [[ "$outdated_output" == *"Error"* ]]; then
+    local outdated_exit_code=0
+    outdated_output=$(mas outdated 2>&1) || outdated_exit_code=$?
+
+    if [[ $outdated_exit_code -ne 0 ]] || [[ "$outdated_output" == *"Error"* ]]; then
       mas_errors+=("check")
-      echo "  ${RED}WARNING:${NC} Failed to check for App Store updates"
+      echo "  ${RED}WARNING:${NC} Failed to check for App Store updates (exit code: $outdated_exit_code)"
       echo "  ${BLUE}INFO:${NC} Make sure you're signed in to App Store: open -a 'App Store'"
     elif [[ -z "$outdated_output" ]] || echo "$outdated_output" | grep -qiE "(All.*up to date|Nothing to update)"; then
       echo "  ${BLUE}INFO:${NC} All App Store apps are up to date"
@@ -2284,21 +2317,22 @@ update() {
       # Count outdated apps
       local outdated_count
       outdated_count=$(echo "$outdated_output" | grep -cE "^[0-9]+" || echo "0")
-      
+
       if [[ "$outdated_count" -gt 0 ]]; then
         echo "  Found $outdated_count outdated app(s):"
         echo "$outdated_output" | head -5
         [[ "$outdated_count" -gt 5 ]] && echo "  ... and $((outdated_count - 5)) more"
-        
+
         echo "  Updating apps..."
         local mas_update_output
+        local mas_update_exit_code=0
         # mas should run without sudo to use per-user App Store authentication
-        # Try both upgrade and update commands
-        mas_update_output=$(mas upgrade 2>&1 || mas update 2>&1 || echo "FAILED")
-        
-        if [[ "$mas_update_output" == "FAILED" ]] || [[ "$mas_update_output" == *"Error"* ]]; then
+        # Try mas upgrade first
+        mas_update_output=$(mas upgrade 2>&1) || mas_update_exit_code=$?
+
+        if [[ $mas_update_exit_code -ne 0 ]] || [[ "$mas_update_output" == *"Error"* ]]; then
           mas_errors+=("update")
-          echo "  ${RED}WARNING:${NC} Failed to update App Store apps"
+          echo "  ${RED}WARNING:${NC} Failed to update App Store apps (exit code: $mas_update_exit_code)"
           echo "  ${BLUE}INFO:${NC} You may need to sign in to App Store or enter your password"
         elif echo "$mas_update_output" | grep -qiE "(Upgrading|Downloading|Installed)"; then
           echo "  SUCCESS: App Store apps updated"
@@ -2329,8 +2363,10 @@ update() {
     profile_count=$(nix profile list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
     if [[ "$profile_count" -gt 0 ]]; then
       local nix_profile_output=""
-      nix_profile_output="$(nix profile upgrade --all 2>&1 || echo "FAILED")"
-      if [[ "$nix_profile_output" != *"FAILED"* ]]; then
+      local nix_profile_exit_code=0
+      nix_profile_output="$(nix profile upgrade --all 2>&1)" || nix_profile_exit_code=$?
+
+      if [[ $nix_profile_exit_code -eq 0 ]]; then
         # Check if output indicates packages were actually updated
         if echo "$nix_profile_output" | grep -qiE "(upgraded|installed|downloading|building|changed)"; then
           echo "  nix profile packages updated successfully"
@@ -2341,17 +2377,19 @@ update() {
         fi
       else
         nix_errors+=("profile")
-        echo "  ${RED}WARNING:${NC} nix profile update failed"
+        echo "  ${RED}WARNING:${NC} nix profile update failed (exit code: $nix_profile_exit_code)"
       fi
     fi
-    
+
     # Update nix-env packages
     local env_count
     env_count=$(nix-env -q 2>/dev/null | wc -l | tr -d ' ' || echo "0")
     if [[ "$env_count" -gt 0 ]]; then
       local nix_env_output=""
-      nix_env_output="$(nix-env -u '*' 2>&1 || echo "FAILED")"
-      if [[ "$nix_env_output" != *"FAILED"* ]]; then
+      local nix_env_exit_code=0
+      nix_env_output="$(nix-env -u '*' 2>&1)" || nix_env_exit_code=$?
+
+      if [[ $nix_env_exit_code -eq 0 ]]; then
         # Check if output indicates packages were actually updated
         if echo "$nix_env_output" | grep -qiE "(upgraded|installed|downloading|building|changed)"; then
           echo "  nix-env packages updated successfully"
@@ -2362,6 +2400,7 @@ update() {
         fi
       else
         nix_errors+=("nix-env")
+        echo "  ${RED}WARNING:${NC} nix-env update failed (exit code: $nix_env_exit_code)"
         echo "  ${RED}WARNING:${NC} nix-env update failed"
       fi
     fi
